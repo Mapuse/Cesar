@@ -1,0 +1,3 @@
+*.rs linguist-language=Rust
+*.ini linguist-language=INI
+Cargo.toml linguist-language=Rust

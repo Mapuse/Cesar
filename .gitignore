@@ -1,0 +1,28 @@
+# Rust / Cargo
+/target/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Build artifacts
+*.o
+*.so
+*.dylib
+*.dll
+*.rlib
+*.d
+*.pdb
+
+# Logs
+*.log
+
+# Temp
+/tmp/
