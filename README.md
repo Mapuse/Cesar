@@ -115,92 +115,6 @@ Cesar is an init system written in Rust. It runs as the first process during boo
 </details>
 
 <details>
-<summary>Installation</summary>
-
-## Installation
-
-Cesar is installed as `/sbin/init` on Cudane Linux. The `csr` binary is hardlinked from `/sbin/init` to `/system/bin/csr`.
-
-All build systems auto-detect `x86_64`/`aarch64` and select the correct musl target. Cross-compilation files are in `env.mk`, `toolchain.cmake`, and `cross.txt` (generated via `gen-cross.sh`).
-
-### Cargo (direct)
-
-```shell
-cargo build --release
-# Binaries: target/release/csr, target/release/csl
-# Install:
-install -Dm755 target/release/csr /system/bin/csr
-install -Dm755 target/release/csl /system/bin/csl
-```
-
-### Make
-
-```shell
-make build                    # auto-detects arch, builds for host
-make install                  # installs to /system/bin/csr + csl
-make install DESTDIR=/mnt     # staged install
-```
-
-### Meson
-
-```shell
-meson setup builddir --cross-file /home/m/cudane-build/cross.txt --prefix=/system
-meson compile -C builddir
-meson install -C builddir
-```
-
-### Ninja
-
-```shell
-ninja -f build.ninja                       # build
-ninja -f build.ninja install DESTDIR=/mnt  # staged install
-```
-
-### CMake
-
-```shell
-cmake -B build -DCMAKE_TOOLCHAIN_FILE=toolchain.cmake -DCMAKE_INSTALL_PREFIX=/system
-cmake --build build
-cmake --install build
-```
-
-### MCX (package manager)
-
-```shell
-mcx -i cesar
-```
-
-### System link (init)
-
-```sh
-# As part of the Cudane installer:
-ln /system/bin/csr /sbin/init
-```
-
-**Integration with MCX:**
-
-Cesar is the default init system for Cudane Linux. The [**`MCX`**](https://codeberg.org/Cudane/MCX) package manager handles:
-
-- Installing and updating the `cesar` package
-- Managing service config files via `/etc/cesar/services/`
-- Coordinating with Cesar for service lifecycle events
-- Package-level cgroup resource limits (`mcx --cgroup enforce`)
-
-**Runtime directories:**
-
-```
-/system/lib/cesar/services/    # System service configs (read-only)
-/etc/cesar/services/           # User service configs (writable)
-/etc/cesar/enabled/            # Enabled service symlinks
-/var/log/cesar.md              # Markdown log file
-/var/lib/cesar/snapshots/      # Snapshot storage
-```
-
----
-
-</details>
-
-<details>
 <summary>Binaries</summary>
 
 | Binary | Path | Purpose |
@@ -2671,23 +2585,23 @@ kill_service_group(pid, signal):
 <details>
 <summary>Building from Source</summary>
 
-**Prerequisites:**
+## Building
 
-- Rust 2024 edition (nightly or stable with edition 2024 support)
-- Linux target (uses `libc`, `nix` for system calls)
+| Profile | Command | Flags | Use case |
+| ------- | ------- | ----- | -------- |
+| Debug | `cargo build` | — | Development iteration, fast compile |
+| Release | `cargo build --release` | `opt-level = "s"`, `lto = true`, `strip = true` | Production binary, minimised size |
+| Check | `cargo check` | — | Compile-only verification, no artifacts |
 
-```sh
+```shell
+# Compile-only verification (fastest)
+cargo check
+
 # Debug build
 cargo build
 
-# Release build (optimized for size)
+# Release build (optimised for size)
 cargo build --release
-
-# Check without building
-cargo check
-
-# Run tests
-cargo test
 ```
 
 **Release profile:**
@@ -2708,22 +2622,97 @@ target/debug/csr       -> ~15MB (debug)
 target/release/csr     -> ~2MB (release, stripped)
 ```
 
----
+## Installation
 
-</details>
+All build systems auto-detect `x86_64`/`aarch64` and select the correct musl target. Cross-compilation files are in `env.mk`, `toolchain.cmake`, and `cross.txt` (generated via `gen-cross.sh`).
 
-<details>
-<summary>Testing</summary>
+### Cargo (direct)
+
+```shell
+cargo build --release
+# Binaries: target/release/csr, target/release/csl
+# Install:
+install -Dm755 target/release/csr /system/bin/csr
+install -Dm755 target/release/csl /system/bin/csl
+```
+
+### Make
+
+```shell
+make build                    # auto-detects arch, builds for host
+make install                  # installs to /system/bin/csr + csl
+make install DESTDIR=/mnt     # staged install
+```
+
+### Meson
+
+```shell
+meson setup builddir --cross-file cross.txt --prefix=/system
+meson compile -C builddir
+meson install -C builddir
+```
+
+### Ninja
+
+```shell
+ninja -f build.ninja                       # build
+ninja -f build.ninja install DESTDIR=/mnt  # staged install
+```
+
+### CMake
+
+```shell
+cmake -B build -DCMAKE_TOOLCHAIN_FILE=toolchain.cmake -DCMAKE_INSTALL_PREFIX=/system
+cmake --build build
+cmake --install build
+```
+
+### MCX (package manager)
+
+```shell
+mcx -i cesar
+```
+
+### System link (init)
 
 ```sh
-# Self-tests (some require root for /var/log/cesar.md)
-csr debug test
+# As part of the Cudane installer:
+ln /system/bin/csr /sbin/init
+```
 
-# Build check
-cargo check
+**Integration with MCX:**
 
-# Full build
-cargo build --release
+Cesar is the default init system for Cudane Linux. The [**`MCX`**](https://codeberg.org/Cudane/MCX) package manager handles:
+
+- Installing and updating the `cesar` package
+- Managing service config files via `/etc/cesar/services/`
+- Coordinating with Cesar for service lifecycle events
+- Package-level cgroup resource limits (`mcx --cgroup enforce`)
+
+**Runtime directories:**
+
+```
+/system/lib/cesar/services/    # System service configs (read-only)
+/etc/cesar/services/           # User service configs (writable)
+/etc/cesar/enabled/            # Enabled service symlinks
+/var/log/cesar.md              # Markdown log file
+/var/lib/cesar/snapshots/      # Snapshot storage
+```
+
+## Testing
+
+```shell
+# Run all tests (unit + integration)
+cargo test
+
+# Run with stdout/stderr visible
+cargo test -- --nocapture
+
+# Run a specific test by name
+cargo test -- test_name
+
+# Run with all features and release mode
+cargo test --release --all-features
 ```
 
 **Self-test coverage:**
@@ -2734,6 +2723,85 @@ cargo build --release
 | DAG engine | Topological sort produces correct order, cycle detection works |
 | Service directory | `/system/lib/cesar/services/` and `/etc/cesar/services/` exist |
 | Logger | Write + read roundtrip to `/var/log/cesar.md` |
+
+## Linting
+
+```shell
+# Clippy (lint checks)
+cargo clippy -- -D warnings
+
+# Format check
+cargo fmt --check
+
+# Format in place
+cargo fmt
+```
+
+## Auditing
+
+```shell
+# Check for security advisories in dependencies
+cargo audit
+```
+
+## Debugging
+
+```shell
+# Build with debug assertions enabled in release
+cargo build --profile release-debug  # requires Cargo.toml profile
+
+# Run with RUST_LOG for tracing
+RUST_LOG=debug csr
+
+# Run with backtrace on panic
+RUST_BACKTRACE=1 csr
+
+# Run under strace for syscall tracing
+strace -f -o /tmp/csr.strace ./target/release/csr
+
+# Memory profiling with valgrind
+valgrind --tool=massif ./target/release/csr
+ms_print massif.out.* | less
+```
+
+## Profiling
+
+```shell
+# perf profiling (Linux)
+perf record --call-graph dwarf ./target/release/csr
+perf report
+
+# Generate flamegraph
+perf script | inferno-collapse-perf > stacks.folded
+inferno-flamegraph stacks.folded > flamegraph.svg
+
+# CPU sampling with perf stat
+perf stat -e cycles,instructions,cache-misses,faults ./target/release/csr
+```
+
+## Continuous integration
+
+```yaml
+# Expected CI pipeline (GitHub Actions)
+steps:
+  - name: Checkout
+    run: git checkout ${{ github.ref }}
+
+  - name: Build
+    run: cargo build --release
+
+  - name: Test
+    run: cargo test --release
+
+  - name: Lint
+    run: cargo clippy -- -D warnings
+
+  - name: Format
+    run: cargo fmt --check
+
+  - name: Audit
+    run: cargo audit
+```
 
 ---
 
