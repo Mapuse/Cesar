@@ -1,19 +1,23 @@
 ##
 
 ```
- ██████╗███████╗███████╗ █████╗ ██████╗      ██╗ ██████╗███████╗██╗ 
-██╔════╝██╔════╝██╔════╝██╔══██╗██╔══██╗    ██╔╝██╔════╝██╔════╝╚██╗
-██║     █████╗  ███████╗███████║██████╔╝    ██║ ██║     ███████╗ ██║
-██║     ██╔══╝  ╚════██║██╔══██║██╔══██╗    ██║ ██║     ╚════██║ ██║
-╚██████╗███████╗███████║██║  ██║██║  ██║    ╚██╗╚██████╗███████║██╔╝
- ╚═════╝╚══════╝╚══════╝╚═╝  ╚═╝╚═╝  ╚═╝     ╚═╝ ╚═════╝╚══════╝╚═╝ 
+ ██████╗███████╗███████╗ █████╗ ██████╗
+██╔════╝██╔════╝██╔════╝██╔══██╗██╔══██╗
+██║     █████╗  ███████╗███████║██████╔╝
+██║     ██╔══╝  ╚════██║██╔══██║██╔══██╗
+╚██████╗███████╗███████║██║  ██║██║  ██║
+ ╚═════╝╚══════╝╚══════╝╚═╝  ╚═╝╚═╝  ╚═╝
 ```
 
 ##
 
-The Init System of Cudane.
+`▐▀` `-` `▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▌`
 
-- **`Version:`** **`0.0.7`**
+The Init System of [**`Cudane`**], a Good Replace of [**`Systemd`**] Written in [**`Rust`**] That Completely [**`Silent`**], So You Won't Be Scared Again of Terrifying Streaming Output, Cesar runs as the first process during boot, manages all system services through an [**`Async`**] dependency graph, and provides a [**`CLI`**] for administration after boot completes.
+
+- **`Version`**: [**`0.0.7`**]
+
+`▐▄` `-` `▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▌`
 
 <details>
 <summary>Contents</summary>
@@ -58,8 +62,6 @@ The Init System of Cudane.
 
 <details>
 <summary>Overview</summary>
-
-Cesar is an init system written in Rust. It runs as the first process during boot, manages all system services through an async dependency graph, and provides a CLI for administration after boot completes.
 
 - Flat `.ini` Services files
 - Async parallel boot via Tokio
@@ -2685,7 +2687,7 @@ ln /system/bin/csr /sbin/init
 
 **Integration with MCX:**
 
-Cesar is the default init system for Cudane Linux. The [**`MCX`**](https://codeberg.org/Cudane/MCX) package manager handles:
+Cesar is the default init system for Cudane Linux. The [[[**`MCX`**]]](https://codeberg.org/Cudane/MCX) package manager handles:
 
 - Installing and updating the `cesar` package
 - Managing service config files via `/etc/cesar/services/`
@@ -3152,7 +3154,7 @@ Cesar/
 <details>
 <summary>Contributing</summary>
 
-Cesar on [**`GitHub`**](https://github.com/Mapuse). Issues and pull requests are welcome.
+Cesar on [[[**`GitHub`**]]](https://github.com/Mapuse). Issues and pull requests are welcome.
 
 ```sh
 git clone https://github.com/Mapuse/Cesar.git
@@ -3168,22 +3170,13 @@ Follow existing code style. No comments unless requested. All error paths must p
 
 </details>
 
-<details>
-<summary>Credits</summary>
+## Credits
 
-**`Cesar`** is part of the **`Cudane`** ecosystem.
+[**`Cesar`**] is part of the [**`Cudane`**] ecosystem.
 
-- **`Cudane`** — The Distribution.
-- **`Cesar`** — Init System (PID 1).
-- **`MCX`** — Package Manager.
-
-</details>
-
-<details>
-<summary>License</summary>
+- [**`Cudane`**] — The Distribution.
+- [**`MCX`**] — Package Manager.
 
 ## License
 
 **MIT License** ─ See [[**`LICENSE`**](https://github.com/Mapuse/.github/blob/profile/LICENSE)] for More Details.
-
-</details>
