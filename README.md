@@ -1,4 +1,4 @@
-#
+##
 
 ```
  ██████╗███████╗███████╗ █████╗ ██████╗      ██╗ ██████╗███████╗██╗ 
@@ -9,7 +9,10 @@
  ╚═════╝╚══════╝╚══════╝╚═╝  ╚═╝╚═╝  ╚═╝     ╚═╝ ╚═════╝╚══════╝╚═╝ 
 ```
 
-- **`The Init System of Cudane.`**
+##
+
+The Init System of Cudane.
+
 - **`Version:`** **`0.0.7`**
 
 <details>
@@ -19,10 +22,10 @@
 - [Architecture](#architecture)
 - [Installation](#installation)
 - [Binaries](#binaries)
-- [Service Configuration](#service-configuration)
+- [Services](#services)
 - [CLI](#cli)
-  - [Global Flags](#global-flags)
-  - [Flag Conventions](#flag-conventions)
+  - [Flags](#flags)
+  - [conventions](#conventions)
   - [service](#service)
   - [system](#system)
   - [config](#config)
@@ -34,19 +37,19 @@
   - [query](#query)
   - [debug](#debug)
   - [self](#self)
-- [CLI Tree](#cli-tree)
-- [Boot Sequence](#boot-sequence)
-- [Dependency Resolution](#dependency-resolution)
-- [State Machine](#state-machine)
+- [CLI](##cli)
+- [Boot](#boot)
+- [Resolution](#resolution)
+- [State](#state)
 - [Logging](#logging)
-- [Socket Activation](#socket-activation)
+- [Sockets](#sockets)
 - [Snapshots](#snapshots)
-- [Security Model](#security-model)
-- [Filesystem Layout](#filesystem-layout)
-- [Building from Source](#building-from-source)
-- [Python Subsystem](#python-subsystem)
+- [Models](#models)
+- [Filesystem](#filesystem)
+- [Building](#building)
+- [Python](#python)
 - [Configuration](#configuration)
-- [Project Structure](#project-structure)
+- [Structure](#structure)
 - [Dependencies](#dependencies)
 
 ---
@@ -58,11 +61,11 @@
 
 Cesar is an init system written in Rust. It runs as the first process during boot, manages all system services through an async dependency graph, and provides a CLI for administration after boot completes.
 
-- Flat `.ini` service configuration files
+- Flat `.ini` Services files
 - Async parallel boot via Tokio
-- DAG-based dependency resolution with cycle detection
+- DAG-based Resolution with cycle detection
 - Auto-restart watchdog (`Restart=always` / `Restart=on-failure`)
-- Socket activation (Unix stream/datagram, TCP)
+- Sockets (Unix stream/datagram, TCP)
 - Markdown structure logging at `/var/log/cesar.md`
 - Plymouth splash integration (silent by default)
 - Process group isolation with signal forwarding
@@ -127,7 +130,7 @@ Cesar is an init system written in Rust. It runs as the first process during boo
 </details>
 
 <details>
-<summary>Service Configuration</summary>
+<summary>Services</summary>
 
 Services are defined as flat `.ini` files in `/system/lib/cesar/services/` or `/etc/cesar/services/`.
 
@@ -199,7 +202,7 @@ Environment = HOME=/var/lib/my-daemon level=info DB_PATH=/var/lib/my-daemon/data
 <details>
 <summary>CLI</summary>
 
-### Global Flags
+### Flags
 
 ```
 csr [OPTIONS] [COMMAND]
@@ -209,7 +212,7 @@ Options:
   -V, --version   Print version
 ```
 
-### Flag Conventions
+### conventions
 
 - All subcommands support `-` and `--` flags interchangeably
 - Mixed flagging is supported: `csr service -n greetd -f` is the same as `csr service --name greetd --force`
@@ -232,7 +235,7 @@ Commands:
   start     Start a service                    (alias: up)
   stop      Stop a service                     (alias: dn)
   restart   Restart a service                  (alias: rs)
-  reload    Reload service configuration       (alias: rl)
+  reload    Reload Services       (alias: rl)
   kill      Send signal to a service
   enable    Enable a service for boot
   disable   Disable a service
@@ -243,7 +246,7 @@ Commands:
   cat       Show service config file
   edit      Edit service config
   diff      Diff running vs on-disk config
-  validate  Validate service configuration
+  validate  Validate Services
   create    Create a new service config
   rm        Remove a service
   monitor   Monitor service health
@@ -304,7 +307,7 @@ csr svc rs -n greetd
 
 #### `service reload`
 
-Reload service configuration. Requires `--name`.
+Reload Services. Requires `--name`.
 
 | Flag | Short | Long | Type | Default | Description |
 |------|-------|------|------|---------|-------------|
@@ -479,7 +482,7 @@ csr service diff --name greetd --running
 
 #### `service validate`
 
-Validate service configuration.
+Validate Services.
 
 | Flag | Short | Long | Type | Default | Description |
 |------|-------|------|------|---------|-------------|
@@ -503,7 +506,7 @@ Create a new service config. Requires `--name` and `--exec`.
 | exec | `-e` | `--exec` | `String` | — | Exec path (required) |
 | requires | `-r` | `--requires` | `Option<String>` | — | Required services (comma-separated) |
 | restart | `-R` | `--restart` | `Option<String>` | — | Restart policy |
-| socket | `-s` | `--socket` | `Option<String>` | — | Socket activation spec |
+| socket | `-s` | `--socket` | `Option<String>` | — | Sockets spec |
 | description | `-d` | `--description` | `Option<String>` | — | Description |
 | environment | `-E` | `--environment` | `Option<String>` | — | Environment variables (space-separated KEY=VALUE) |
 | working-directory | `-w` | `--working-directory` | `Option<String>` | — | Working directory |
@@ -1302,7 +1305,7 @@ csr log summary -S "2026-07-13" -t 10
 
 ### socket
 
-Socket activation and monitoring. Alias: `sock`
+Sockets and monitoring. Alias: `sock`
 
 ```
 csr socket <COMMAND>
@@ -2174,7 +2177,7 @@ csr self config -S boot.verbose=true
 </details>
 
 <details>
-<summary>CLI Tree</summary>
+<summary>CLI</summary>
 
 ```
 csr
@@ -2348,7 +2351,7 @@ csr
 </details>
 
 <details>
-<summary>Boot Sequence</summary>
+<summary>Boot</summary>
 
 When Cesar runs as PID 1:
 
@@ -2387,7 +2390,7 @@ When Cesar runs as PID 1:
 </details>
 
 <details>
-<summary>Dependency Resolution</summary>
+<summary>Resolution</summary>
 
 The DAG engine performs topological sorting with cycle detection:
 
@@ -2412,9 +2415,9 @@ Services at the same level boot in parallel. Services at a higher level wait unt
 </details>
 
 <details>
-<summary>State Machine</summary>
+<summary>State</summary>
 
-Each service follows this state machine:
+Each service follows this State:
 
 ```
 Stopped -> Starting -> Running
@@ -2467,7 +2470,7 @@ Only stderr breaks silence during boot (error trees, critical messages). Everyth
 </details>
 
 <details>
-<summary>Socket Activation</summary>
+<summary>Sockets</summary>
 
 Services can declare sockets in their `.ini` config:
 
@@ -2524,7 +2527,7 @@ Storage: `/var/lib/cesar/snapshots/`
 </details>
 
 <details>
-<summary>Security Model</summary>
+<summary>Models</summary>
 
 Cesar runs as PID 1 (root) and enforces security through:
 
@@ -2565,7 +2568,7 @@ kill_service_group(pid, signal):
 </details>
 
 <details>
-<summary>Filesystem Layout</summary>
+<summary>Filesystem</summary>
 
 ```
 /sbin/init                    -> hardlink to /system/bin/csr
@@ -2583,7 +2586,7 @@ kill_service_group(pid, signal):
 </details>
 
 <details>
-<summary>Building from Source</summary>
+<summary>Building</summary>
 
 ## Building
 
@@ -2808,9 +2811,9 @@ steps:
 </details>
 
 <details>
-<summary>Python Subsystem</summary>
+<summary>Python</summary>
 
-The Python subsystem is a fully out-of-process plugin, theme, and TUI engine. Python runs as a separate process — Cesar never embeds an interpreter. Communication is done via:
+The Python is a fully out-of-process plugin, theme, and TUI engine. Python runs as a separate process — Cesar never embeds an interpreter. Communication is done via:
 - **CLI aliases** — on-demand execution via `csr plugin run <alias>`
 - **UNIX domain socket events** — fire-and-forget JSON messages at `/run/cesar/event.sock`
 
@@ -2922,7 +2925,7 @@ Cesar emits JSON events to `/run/cesar/event.sock` (UNIX datagram) during boot a
 
 | Event | Payload | When |
 |-------|---------|------|
-| `boot` | `{"state": "starting"}` | Boot sequence begins |
+| `boot` | `{"state": "starting"}` | Boot begins |
 | `boot` | `{"total_services": N, "failed_services": N}` | Boot complete |
 | `service` | `{"name": "...", "state": "started", "pid": N}` | Service started |
 | `service` | `{"name": "...", "state": "failed", "pid": 0}` | Service failed |
@@ -3097,7 +3100,7 @@ animation = fast
 </details>
 
 <details>
-<summary>Project Structure</summary>
+<summary>Structure</summary>
 
 ```
 Cesar/
@@ -3111,16 +3114,16 @@ Cesar/
 │   ├── greetd.ini
 │   └── ...
 └── src/
-    ├── main.rs             # PID 1 entry, signal handlers, boot sequence
+    ├── main.rs             # PID 1 entry, signal handlers, Boot
     ├── lib.rs              # Module declarations
-    ├── cli.rs              # Clap CLI tree (2,162 lines)
+    ├── cli.rs              # Clap CLI (2,162 lines)
     ├── commands.rs         # All command handlers (1,993 lines)
     ├── config.rs           # INI config parser
     ├── dag.rs              # DAG dependency engine
     ├── logger.rs           # Markdown logger
     ├── process.rs          # fork/exec, zombie reaping, process groups
     ├── service.rs          # Core types (ServiceState, Service, ServiceConfig)
-    ├── socket.rs           # Socket activation
+    ├── socket.rs           # Sockets
     ├── visual.rs           # Error trees and status dashboard
     └── bin/
         └── csl.rs          # Log viewer binary
