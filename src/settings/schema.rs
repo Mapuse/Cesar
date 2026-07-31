@@ -10,7 +10,7 @@ fn default_scrollback() -> u64 { 5000 }
 fn default_color_depth() -> String { "truecolor".into() }
 fn default_keybindings() -> String { "default".into() }
 fn default_border_style() -> String { "rounded".into() }
-fn default_animation() -> String { "normal".into() }
+fn default_animation_speed() -> String { "normal".into() }
 fn default_cursor_style() -> String { "block".into() }
 fn default_link_underline() -> String { "hover".into() }
 fn default_search_highlight_color() -> String { "yellow".into() }
@@ -53,7 +53,7 @@ pub struct GeneralConfig {
     pub notifications: bool,
     pub notification_timeout: u64,
     pub animation: bool,
-    pub animation: String,
+    pub animation_speed: String,
 }
 
 impl Default for GeneralConfig {
@@ -81,7 +81,7 @@ impl Default for GeneralConfig {
             notifications: default_true(),
             notification_timeout: 5000,
             animation: default_true(),
-            animation: default_animation(),
+            animation_speed: default_animation_speed(),
         }
     }
 }
