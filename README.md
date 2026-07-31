@@ -22,39 +22,41 @@ The Init System of **`[Cudane]`**, a Good Replace of **`[Systemd]`** Written in 
 <details>
 <summary>Contents</summary>
 
-- **`[[Overview]]`**(#overview)
-- **`[[Architecture]]`**(#architecture)
-- **`[[Installation]]`**(#installation)
-- **`[[Binaries]]`**(#binaries)
-- **`[[Services]]`**(#services)
-- **`[[CLI]]`**(#cli)
-  - **`[[Flags]]`**(#flags)
-  - **`[[Conventions]]`**(#conventions)
-  - **`[[service]]`**(#service)
-  - **`[[system]]`**(#system)
-  - **`[[config]]`**(#config)
-  - **`[[log]]`**(#log)
-  - **`[[socket]`**(#socket)
-  - **`[[daemon]]`**(#daemon)
-  - **`[[snapshot]]`**(#snapshot)
-  - **`[[security]]`**(#security)
-  - **`[[query]]`**(#query)
-  - **`[[debug]]`**(#debug)
-  - **`[[self]]`**(#self)
-- **`[[Workflow]]`**(#workflow)
-- **`[[Boot]]`**(#boot)
-- **`[[Resolution]]`**(#resolution)
-- **`[[State]]`**(#state)
-- **`[[Logging]]`**(#logging)
-- **`[[Sockets]]`**(#sockets)
-- **`[[Snapshots]]`**(#snapshots)
-- **`[[Models]]`**(#models)
-- **`[[Filesystem]]`**(#filesystem)
-- **`[[Building]]`**(#building)
-- **`[[Python]]`**(#python)
-- **`[[Configuration]]`**(#configuration)
-- **`[[Structure]]`**(#structure)
-- **`[[Dependencies]]`**(#dependencies)
+## Table of Contents
+
+- [**`[Overview]`**](#overview)
+- [**`[Architecture]`**](#architecture)
+- [**`[Installation]`**](#installation)
+- [**`[Binaries]`**](#binaries)
+- [**`[Services]`**](#services)
+- [**`[CLI]`**](#cli)
+  - [**`[Flags]`**](#flags)
+  - [**`[Conventions]`**](#conventions)
+  - [**`[service]`**](#service)
+  - [**`[system]`**](#system)
+  - [**`[config]`**](#config)
+  - [**`[log]`**](#log)
+  - [**`[socket]`**](#socket)
+  - [**`[daemon]`**](#daemon)
+  - [**`[snapshot]`**](#snapshot)
+  - [**`[security]`**](#security)
+  - [**`[query]`**](#query)
+  - [**`[debug]`**](#debug)
+  - [**`[self]`**](#self)
+- [**`[Workflow]`**](#workflows)
+- [**`[Boot]`**](#boot)
+- [**`[Resolution]`**](#resolution)
+- [**`[State]`**](#state)
+- [**`[Logging]`**](#logging)
+- [**`[Sockets]`**](#sockets)
+- [**`[Snapshots]`**](#snapshots)
+- [**`[Models]`**](#models)
+- [**`[Filesystem]`**](#filesystem)
+- [**`[Building]`**](#building)
+- [**`[Python]`**](#python)
+- [**`[Configuration]`**](#configuration)
+- [**`[Structure]`**](#structure)
+- [**`[Dependencies]`**](#dependencies)
 
 ---
 
@@ -62,6 +64,8 @@ The Init System of **`[Cudane]`**, a Good Replace of **`[Systemd]`** Written in 
 
 <details>
 <summary>Overview</summary>
+
+### Overview
 
 - Flat `.ini` Services files
 - Async parallel boot via Tokio
@@ -81,6 +85,8 @@ The Init System of **`[Cudane]`**, a Good Replace of **`[Systemd]`** Written in 
 
 <details>
 <summary>Architecture</summary>
+
+## Architecture
 
 ```
 ┌──────────────────────────────────────────────────┐
@@ -122,6 +128,8 @@ The Init System of **`[Cudane]`**, a Good Replace of **`[Systemd]`** Written in 
 <details>
 <summary>Binaries</summary>
 
+## Binaries
+
 | Binary | Path | Purpose |
 |--------|------|---------|
 | `csr` | `/system/bin/csr` | Main binary — PID 1 during boot, CLI tool after boot |
@@ -133,6 +141,8 @@ The Init System of **`[Cudane]`**, a Good Replace of **`[Systemd]`** Written in 
 
 <details>
 <summary>Services</summary>
+
+## Services
 
 Services are defined as flat `.ini` files in `/system/lib/cesar/services/` or `/etc/cesar/services/`.
 
@@ -204,6 +214,8 @@ Environment = HOME=/var/lib/my-daemon level=info DB_PATH=/var/lib/my-daemon/data
 <details>
 <summary>CLI</summary>
 
+## CLI
+
 ### Flags
 
 ```
@@ -226,7 +238,7 @@ Options:
 
 ---
 
-### service
+### `service`
 
 Service management and lifecycle control. Alias: `svc`
 
@@ -2181,6 +2193,8 @@ csr self config -S boot.verbose=true
 <details>
 <summary>Workflow</summary>
 
+## Workflows
+
 ### Binary Tree
  
 csr
@@ -2355,6 +2369,8 @@ csr
 <details>
 <summary>Boot</summary>
 
+## Boot
+
 When Cesar runs as PID 1:
 
 ```
@@ -2394,6 +2410,8 @@ When Cesar runs as PID 1:
 <details>
 <summary>Resolution</summary>
 
+## Resolution
+
 The DAG engine performs topological sorting with cycle detection:
 
 ```
@@ -2418,6 +2436,8 @@ Services at the same level boot in parallel. Services at a higher level wait unt
 
 <details>
 <summary>State</summary>
+
+## State
 
 Each service follows this State:
 
@@ -2455,6 +2475,8 @@ Services with `Restart = never` (the default) are never auto-restarted.
 <details>
 <summary>Logging</summary>
 
+## Logging
+
 All log output goes to `/var/log/cesar.md` in Markdown format.
 
 | Type | Level | Example |
@@ -2473,6 +2495,8 @@ Only stderr breaks silence during boot (error trees, critical messages). Everyth
 
 <details>
 <summary>Sockets</summary>
+
+## Sockets
 
 Services can declare sockets in their `.ini` config:
 
@@ -2505,6 +2529,8 @@ During boot, Cesar:
 <details>
 <summary>Snapshots</summary>
 
+## Snapshots
+
 Snapshots capture the full system state for rollback:
 
 ```sh
@@ -2530,6 +2556,8 @@ Storage: `/var/lib/cesar/snapshots/`
 
 <details>
 <summary>Models</summary>
+
+## Models
 
 Cesar runs as PID 1 (root) and enforces security through:
 
@@ -2571,6 +2599,8 @@ kill_service_group(pid, signal):
 
 <details>
 <summary>Filesystem</summary>
+
+## Filesystem
 
 ```
 /sbin/init                    -> hardlink to /system/bin/csr
@@ -2672,7 +2702,7 @@ cmake --build build
 cmake --install build
 ```
 
-### MCX (package manager)
+### MCX (Recommended)
 
 ```shell
 mcx -i cesar
@@ -2814,6 +2844,8 @@ steps:
 
 <details>
 <summary>Python</summary>
+
+## Python
 
 The Python is a fully out-of-process plugin, theme, and TUI engine. Python runs as a separate process — Cesar never embeds an interpreter. Communication is done via:
 - **CLI aliases** — on-demand execution via `csr plugin run <alias>`
@@ -3015,6 +3047,8 @@ if __name__ == "__main__":
 <details>
 <summary>Configuration</summary>
 
+## Configuration
+
 Cesar reads its main configuration from `/etc/cesar/cesar.ini`. All fields have defaults, so the file is optional.
 
 ### `[Cesar]` section
@@ -3104,6 +3138,8 @@ animation = fast
 <details>
 <summary>Structure</summary>
 
+## Structure
+
 ```
 Cesar/
 ├── Cargo.toml              # Package (v0.0.7, edition 2024)
@@ -3138,6 +3174,8 @@ Cesar/
 <details>
 <summary>Dependencies</summary>
 
+## Dependencies
+
 | Crate | Version | Purpose |
 |-------|---------|---------|
 | `tokio` | 1 (full) | Async runtime for parallel boot |
@@ -3153,6 +3191,8 @@ Cesar/
 
 <details>
 <summary>Contributing</summary>
+
+## Contributing
 
 Cesar on [[**`[GitHub]`**]](https://github.com/Mapuse). Issues and pull requests are welcome.
 
