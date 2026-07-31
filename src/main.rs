@@ -1,15 +1,16 @@
 #![allow(clippy::await_holding_lock)]
 
-mod cli;
-mod commands;
-mod config;
-mod dag;
-mod health;
-mod logger;
-mod process;
-mod service;
-mod socket;
-mod visual;
+use cesar::cli;
+use cesar::commands;
+use cesar::config;
+use cesar::dag;
+use cesar::event;
+use cesar::health;
+use cesar::logger;
+use cesar::process;
+use cesar::service;
+use cesar::socket;
+use cesar::visual;
 
 use std::ffi::CStr;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -42,14 +43,14 @@ fn get_dag() -> std::sync::MutexGuard<'static, DagEngine> {
     CESAR_DAG
         .get_or_init(|| Mutex::new(DagEngine::new()))
         .lock()
-        .unwrap()
+        .expect("dag lock")
 }
 
 fn get_children() -> std::sync::MutexGuard<'static, Vec<(String, u32)>> {
     RUNNING_CHILDREN
         .get_or_init(|| Mutex::new(Vec::new()))
         .lock()
-        .unwrap()
+        .expect("children lock")
 }
 
 fn setup_signal_handlers() {
@@ -87,7 +88,7 @@ fn process_reaped_children() {
             process::ProcessStatus::Exited => {
                 get_logger().log_warning(&name, "Process exited unexpectedly");
                 get_children().retain(|(n, _)| n != &name);
-                maybe_restart_service(&name);
+                maybe_restart_service(&name, &status);
             }
             process::ProcessStatus::Failed(code) => {
                 get_logger().log_error(
@@ -96,20 +97,23 @@ fn process_reaped_children() {
                 );
                 get_dag().mark_failed(&name);
                 get_children().retain(|(n, _)| n != &name);
-                maybe_restart_service(&name);
+                maybe_restart_service(&name, &status);
             }
             process::ProcessStatus::Signaled(sig) => {
                 get_logger().log_error(&name, &format!("Killed by signal {}", sig));
                 get_dag().mark_failed(&name);
                 get_children().retain(|(n, _)| n != &name);
-                maybe_restart_service(&name);
+                maybe_restart_service(&name, &status);
             }
             _ => {}
         }
     }
 }
 
-fn maybe_restart_service(name: &str) {
+fn maybe_restart_service(name: &str, status: &process::ProcessStatus) {
+    if SHUTDOWN_REQUESTED.load(Ordering::SeqCst) {
+        return;
+    }
     let (restart_policy, max_restarts, current_count, exec, env_vars, work_dir) = {
         let dag = get_dag();
         if let Some(svc) = dag.services.get(name) {
@@ -126,57 +130,63 @@ fn maybe_restart_service(name: &str) {
         }
     };
 
-    match restart_policy {
-        RestartPolicy::Always | RestartPolicy::OnFailure => {
-            if current_count >= max_restarts {
-                get_logger().log_error(
-                    name,
-                    &format!(
-                        "Service exceeded max restart limit ({}), not restarting",
-                        max_restarts
-                    ),
-                );
-                return;
-            }
-
-            let name_owned = name.to_string();
-            get_logger().log_info(
-                name,
-                &format!(
-                    "Auto-restarting service (attempt {}/{})",
-                    current_count + 1,
-                    max_restarts
-                ),
-            );
-
-            {
-                let mut dag = get_dag();
-                if let Some(svc) = dag.services.get_mut(&name_owned) {
-                    svc.restart_count += 1;
-                }
-            }
-
-            let logger_ref = get_logger();
-            tokio::spawn(async move {
-                sleep(Duration::from_millis(1000)).await;
-                match process::spawn_service_env(&name_owned, &exec, &env_vars, work_dir.as_deref(), logger_ref) {
-                    Ok(pid) => {
-                        add_running_child(&name_owned, pid);
-                        let mut dag = get_dag();
-                        dag.mark_running(&name_owned, pid);
-                        logger_ref.log_service_event(
-                            &name_owned,
-                            &format!("Service auto-restarted (PID {})", pid),
-                        );
-                    }
-                    Err(e) => {
-                        logger_ref.log_error(&name_owned, &format!("Auto-restart failed: {}", e));
-                    }
-                }
-            });
-        }
-        RestartPolicy::Never => {}
+    let should_restart = match restart_policy {
+        RestartPolicy::Always => true,
+        RestartPolicy::OnFailure => !matches!(status, process::ProcessStatus::Exited),
+        RestartPolicy::Never => false,
+    };
+    if !should_restart {
+        return;
     }
+
+    if current_count >= max_restarts {
+        get_logger().log_error(
+            name,
+            &format!(
+                "Service exceeded max restart limit ({}), not restarting",
+                max_restarts
+            ),
+        );
+        return;
+    }
+
+    let name_owned = name.to_string();
+    get_logger().log_info(
+        name,
+        &format!(
+            "Auto-restarting service (attempt {}/{})",
+            current_count + 1,
+            max_restarts
+        ),
+    );
+
+    {
+        let mut dag = get_dag();
+        if let Some(svc) = dag.services.get_mut(&name_owned) {
+            svc.restart_count += 1;
+        }
+    }
+
+    let logger_ref = get_logger();
+    tokio::spawn(async move {
+        sleep(Duration::from_millis(1000)).await;
+        match process::spawn_service_env(&name_owned, &exec, &env_vars, work_dir.as_deref(), logger_ref) {
+            Ok(pid) => {
+                add_running_child(&name_owned, pid);
+                let mut dag = get_dag();
+                dag.mark_running(&name_owned, pid);
+                logger_ref.log_service_event(
+                    &name_owned,
+                    &format!("Service auto-restarted (PID {})", pid),
+                );
+                event::EventBus::emit_service(&name_owned, "restarted", pid);
+            }
+            Err(e) => {
+                logger_ref.log_error(&name_owned, &format!("Auto-restart failed: {}", e));
+                event::EventBus::emit_service(&name_owned, "restart-failed", 0);
+            }
+        }
+    });
 }
 
 fn add_running_child(name: &str, pid: u32) {
@@ -297,7 +307,7 @@ async fn boot_sequence_silent() {
             };
 
             if let Some(svc) = svc {
-                if !svc.is_ready() && !svc.config.requires.is_empty() {
+                if !svc.config.requires.is_empty() {
                     let deps_ok = {
                         let dag = get_dag();
                         dag.all_deps_satisfied(name)
@@ -333,15 +343,17 @@ async fn boot_sequence_silent() {
         }
 
         for handle in handles {
-            let result = handle.await.unwrap();
+            let result = handle.await.expect("service spawn task");
             match result {
                 (name, Ok(pid)) => {
                     get_dag().mark_running(&name, pid);
                     logger.log_service_event(&name, &format!("Service started (PID {})", pid));
+                    event::EventBus::emit_service(&name, "started", pid);
                 }
                 (name, Err(e)) => {
                     get_dag().mark_failed(&name);
                     logger.log_service_event(&name, &format!("Service failed: {}", e));
+                    event::EventBus::emit_service(&name, "failed", 0);
                     plymouth_message(&format!("[Error] :: {} failed: {}", name, e));
                     failed_services.push((name.clone(), e.clone()));
                     logger.log_error(&name, &e);
@@ -354,6 +366,7 @@ async fn boot_sequence_silent() {
     }
 
     logger.log_boot_complete(total_services, failed_count);
+    event::EventBus::emit_boot(total_services, failed_count);
 
     if !failed_services.is_empty() {
         let dag = get_dag();
@@ -369,8 +382,10 @@ async fn boot_sequence_silent() {
 }
 
 fn shutdown_graceful() {
+    SHUTDOWN_REQUESTED.store(true, Ordering::SeqCst);
     let logger = get_logger();
     logger.log_info("shutdown", "Graceful shutdown initiated");
+    event::EventBus::emit_shutdown();
     plymouth_update("[Done] :: Shutting down...");
 
     let children = get_children().clone();
@@ -413,7 +428,7 @@ fn reload_services() {
     for cfg in new_configs {
         let name = cfg.name.clone();
         if dag.services.contains_key(&name) {
-            dag.services.get_mut(&name).unwrap().config = cfg;
+            dag.services.get_mut(&name).expect("service present").config = cfg;
         } else {
             dag.add_service(cfg);
         }
@@ -430,6 +445,7 @@ async fn main() {
     if is_init {
         setup_signal_handlers();
         mount_virtual_filesystems();
+        let _event_listener = event::EventBus::start_listener();
 
         let logger = get_logger();
         logger.log_info("csr", "[Done] :: Init System starting as PID 1");
@@ -500,7 +516,7 @@ async fn boot_sequence_for_cli(dag: &mut DagEngine, logger: &CesarLogger) {
             };
 
             if let Some(svc) = svc {
-                if !svc.is_ready() && !svc.config.requires.is_empty()
+                if !svc.config.requires.is_empty()
                     && !dag.all_deps_satisfied(name) {
                         logger.log_warning(name, "Dependencies not satisfied, skipping");
                         dag.mark_failed(name);
@@ -526,15 +542,17 @@ async fn boot_sequence_for_cli(dag: &mut DagEngine, logger: &CesarLogger) {
         }
 
         for handle in handles {
-            let result = handle.await.unwrap();
+            let result = handle.await.expect("service spawn task");
             match result {
                 (name, Ok(pid)) => {
                     dag.mark_running(&name, pid);
                     logger.log_service_event(&name, &format!("Service started (PID {})", pid));
+                    event::EventBus::emit_service(&name, "started", pid);
                 }
                 (name, Err(e)) => {
                     dag.mark_failed(&name);
                     logger.log_service_event(&name, &format!("Service failed: {}", e));
+                    event::EventBus::emit_service(&name, "failed", 0);
                     failed_services.push((name, e));
                 }
             }
@@ -542,6 +560,7 @@ async fn boot_sequence_for_cli(dag: &mut DagEngine, logger: &CesarLogger) {
     }
 
     logger.log_boot_complete(total, failed_services.len());
+    event::EventBus::emit_boot(total, failed_services.len());
 
     if !failed_services.is_empty() {
         let error_tree = visual::build_error_tree(dag, &failed_services);

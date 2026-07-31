@@ -91,7 +91,7 @@ impl DagEngine {
                         return Some(cycle);
                     }
                 } else if stack.contains(dep) {
-                    let cycle_start = path.iter().position(|p| p == dep).unwrap();
+                    let cycle_start = path.iter().position(|p| p == dep).expect("cycle start in path");
                     let mut cycle = path[cycle_start..].to_vec();
                     cycle.push(dep.to_string());
                     return Some(cycle);
@@ -134,7 +134,7 @@ impl DagEngine {
                 current_level.push(node.clone());
                 if let Some(children) = self.adjacency.get(&node) {
                     for child in children {
-                        let deg = in_degree.get_mut(child).unwrap();
+                        let deg = in_degree.get_mut(child).expect("child in in-degree map");
                         *deg -= 1;
                         if *deg == 0 {
                             next_queue.push_back(child.clone());

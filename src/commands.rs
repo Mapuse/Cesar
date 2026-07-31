@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::fs;
 use std::io::Write;
 use std::os::unix::fs::PermissionsExt;
@@ -27,6 +28,9 @@ pub fn execute(cmd: TopCommand, dag: &mut DagEngine, logger: &CesarLogger) {
         TopCommand::Query(c) => handle_query(c, dag, logger),
         TopCommand::Debug(c) => handle_debug(c, dag, logger),
         TopCommand::Self_(c) => handle_self(c, logger),
+        TopCommand::Plugin(c) => handle_plugin(c),
+        TopCommand::Theme(c) => handle_theme(c),
+        TopCommand::Tui(c) => handle_tui(c),
     }
 }
 
@@ -152,7 +156,7 @@ fn handle_system(cmd: SystemCommand, dag: &mut DagEngine, logger: &CesarLogger) 
                 println!("Services stopped.");
             }
             unsafe { libc::sync(); }
-            unsafe { libc::reboot(libc::RB_POWER_OFF); }
+            unsafe { libc::reboot(if args.reboot { libc::RB_AUTOBOOT } else { libc::RB_POWER_OFF }); }
         }
         SystemCommand::Reboot(_args) => {
             logger.log_info("reboot", "Reboot initiated");
@@ -174,7 +178,7 @@ fn handle_system(cmd: SystemCommand, dag: &mut DagEngine, logger: &CesarLogger) 
         }
         SystemCommand::Suspend(args) => {
             let state_path = "/sys/power/state";
-            let state = if args.hibernate { "disk" } else if args.hybrid { "freeze" } else { "mem" };
+            let state = if args.hibernate || args.hybrid { "disk" } else { "mem" };
             match fs::read_to_string(state_path) {
                 Ok(content) => {
                     let states: Vec<&str> = content.split_whitespace().collect();
@@ -226,10 +230,10 @@ fn handle_system(cmd: SystemCommand, dag: &mut DagEngine, logger: &CesarLogger) 
                 let mut flags: libc::c_ulong = 0;
                 if args.recursive { flags |= libc::MS_BIND | libc::MS_REC; }
                 if args.remount { flags |= libc::MS_REMOUNT; }
-                let c_source = std::ffi::CString::new(source.as_str()).unwrap();
-                let c_target = std::ffi::CString::new(target.as_str()).unwrap();
-                let c_fstype = std::ffi::CString::new(fs_type).unwrap();
-                let c_options = std::ffi::CString::new(options).unwrap();
+                let c_source = std::ffi::CString::new(source.as_str()).expect("mount source CString");
+                let c_target = std::ffi::CString::new(target.as_str()).expect("mount target CString");
+                let c_fstype = std::ffi::CString::new(fs_type).expect("fs type CString");
+                let c_options = std::ffi::CString::new(options).expect("mount options CString");
                 let ret = unsafe { libc::mount(c_source.as_ptr(), c_target.as_ptr(), c_fstype.as_ptr(), flags, c_options.as_ptr() as *const libc::c_void) };
                 if ret == 0 {
                     println!("\x1b[32m✓\x1b[0m Mounted {} on {} ({})", source, target, fs_type);
@@ -248,7 +252,7 @@ fn handle_system(cmd: SystemCommand, dag: &mut DagEngine, logger: &CesarLogger) 
         }
         SystemCommand::Umount(args) => {
             if let Some(ref target) = args.target {
-                let c_target = std::ffi::CString::new(target.as_str()).unwrap();
+                let c_target = std::ffi::CString::new(target.as_str()).expect("umount target CString");
                 let mut flags: libc::c_int = 0;
                 if args.lazy { flags |= libc::MNT_DETACH; }
                 if args.force { flags |= libc::MNT_FORCE; }
@@ -269,7 +273,7 @@ fn handle_system(cmd: SystemCommand, dag: &mut DagEngine, logger: &CesarLogger) 
         }
         SystemCommand::Hostname(args) => {
             if let Some(ref h) = args.set {
-                let c_hostname = std::ffi::CString::new(h.as_str()).unwrap();
+                let c_hostname = std::ffi::CString::new(h.as_str()).expect("hostname CString");
                 let ret = unsafe { libc::sethostname(c_hostname.as_ptr(), h.len()) };
                 if ret == 0 { println!("\x1b[32m✓\x1b[0m Hostname set to '{}'", h); }
                 else { eprintln!("\x1b[31m✗\x1b[0m Failed to set hostname: {}", std::io::Error::last_os_error()); }
@@ -475,8 +479,18 @@ fn handle_config(cmd: ConfigCommand, _logger: &CesarLogger) {
                     else { line.to_string() }
                 } else { line.to_string() }
             }).collect();
-            if found { content = new_lines.join("\n"); content.push('\n'); }
-            else { content.push_str(&format!("{} = {}\n", args.key, args.value)); }
+            if found {
+                content = new_lines.join("\n");
+                content.push('\n');
+            } else {
+                let section = format!("[cesar]\n{} = {}\n", args.key, args.value);
+                if content.is_empty() {
+                    content = section;
+                } else {
+                    content.push('\n');
+                    content.push_str(&section);
+                }
+            }
             match fs::write(config_path, &content) {
                 Ok(()) => println!("\x1b[32m✓\x1b[0m Set {} = {}", args.key, args.value),
                 Err(e) => eprintln!("\x1b[31m✗\x1b[0m Failed: {}", e),
@@ -781,8 +795,10 @@ fn handle_socket(cmd: SocketCommand, _logger: &CesarLogger) {
             }
         }
         SocketCommand::Destroy(args) => {
-            let _ = fs::remove_file(&args.path);
-            println!("\x1b[32m✓\x1b[0m Socket '{}' destroyed", args.path);
+            match fs::remove_file(&args.path) {
+                Ok(()) => println!("\x1b[32m✓\x1b[0m Socket '{}' destroyed", args.path),
+                Err(e) => eprintln!("\x1b[31m✗\x1b[0m Failed to destroy socket '{}': {}", args.path, e),
+            }
         }
         SocketCommand::Monitor(args) => {
             println!("Monitoring '{}' (Ctrl+C to stop)...", args.path);
@@ -966,12 +982,10 @@ fn handle_daemon(cmd: DaemonCommand, dag: &mut DagEngine, logger: &CesarLogger) 
             if let Some(ref version) = args.version {
                 fs::write(&pin_path, version).ok();
                 println!("\x1b[32m✓\x1b[0m Daemon '{}' pinned to '{}'", args.name, version);
-            } else {
-                if Path::new(&pin_path).exists() {
-                    let v = fs::read_to_string(&pin_path).unwrap_or_default();
-                    println!("Daemon '{}' pinned to '{}'", args.name, v.trim());
-                } else { println!("Daemon '{}' is not pinned", args.name); }
-            }
+            } else if Path::new(&pin_path).exists() {
+                let v = fs::read_to_string(&pin_path).unwrap_or_default();
+                println!("Daemon '{}' pinned to '{}'", args.name, v.trim());
+            } else { println!("Daemon '{}' is not pinned", args.name); }
         }
         DaemonCommand::Trust(args) => {
             let trust_path = format!("/etc/cesar/trust/{}.key", args.name);
@@ -1087,20 +1101,33 @@ fn handle_snapshot(cmd: SnapshotCommand, dag: &mut DagEngine, _logger: &CesarLog
         SnapshotCommand::Import(args) => {
             let name = args.name.unwrap_or_else(|| format!("import-{}", chrono::Local::now().format("%Y%m%d_%H%M%S")));
             let tmp_dir = format!("/tmp/cesar-import-{}", chrono::Local::now().format("%Y%m%d%H%M%S"));
+            let final_dir = format!("{}/{}", snap_dir, name);
+            if fs::create_dir_all(&tmp_dir).is_err() {
+                eprintln!("\x1b[31m✗\x1b[0m Import failed: cannot create '{}'", tmp_dir);
+                return;
+            }
             match process::Command::new("tar").args(["xzf", &args.file, "-C", &tmp_dir]).status() {
                 Ok(s) if s.success() => {
-                    let final_dir = format!("{}/{}", snap_dir, name);
                     fs::remove_dir_all(&final_dir).ok();
-                    fs::rename(&tmp_dir, &final_dir).ok();
+                    if fs::rename(&tmp_dir, &final_dir).is_err() {
+                        let _ = fs::remove_dir_all(&tmp_dir);
+                        eprintln!("\x1b[31m✗\x1b[0m Import failed: cannot move extracted snapshot to '{}'", final_dir);
+                        return;
+                    }
                     println!("\x1b[32m✓\x1b[0m Imported as '{}'", name);
                 }
                 _ => {
-                    let dest = format!("{}/{}", snap_dir, name);
-                    fs::create_dir_all(&dest).ok();
-                    if let Ok(entries) = fs::read_dir(&args.file) {
-                        for entry in entries.flatten() { fs::copy(entry.path(), format!("{}/{}", dest, entry.file_name().to_string_lossy())).ok(); }
+                    let _ = fs::remove_dir_all(&tmp_dir);
+                    match fs::read_dir(&args.file) {
+                        Ok(entries) => {
+                            fs::create_dir_all(&final_dir).ok();
+                            for entry in entries.flatten() {
+                                let _ = fs::copy(entry.path(), format!("{}/{}", final_dir, entry.file_name().to_string_lossy()));
+                            }
+                            println!("\x1b[32m✓\x1b[0m Imported as '{}'", name);
+                        }
+                        Err(e) => eprintln!("\x1b[31m✗\x1b[0m Import failed: {}", e),
                     }
-                    println!("\x1b[32m✓\x1b[0m Imported as '{}'", name);
                 }
             }
         }
@@ -1446,14 +1473,14 @@ fn handle_self(cmd: SelfCommand, _logger: &CesarLogger) {
             println!("# Source this file: source <(csr self completions -s {})", shell);
             match shell.as_str() {
                 "bash" => {
-                    println!("_cs() {{ local cur prev words cword; _init_completion || return; COMPREPLY=(); if [[ $cword -eq 1 ]]; then COMPREPLY=($(compgen -W \"service system config log socket daemon snapshot security query debug self\" -- $cur)); fi; }}; complete -F _cs csr");
+                    println!("_cs() {{ local cur prev words cword; _init_completion || return; COMPREPLY=(); if [[ $cword -eq 1 ]]; then COMPREPLY=($(compgen -W \"service system config log socket daemon snapshot security query debug self plugin theme tui\" -- $cur)); fi; }}; complete -F _cs csr");
                 }
                 "zsh" => {
                     println!("#compdef csr");
-                    println!("_cs() {{ _arguments '1:command:(service system config log socket daemon snapshot security query debug self)' }}; compdef _cs csr");
+                    println!("_cs() {{ _arguments '1:command:(service system config log socket daemon snapshot security query debug self plugin theme tui)' }}; compdef _cs csr");
                 }
                 "fish" => {
-                    println!("complete -c csr -f -a '(service system config log socket daemon snapshot security query debug self)'");
+                    println!("complete -c csr -f -a '(service system config log socket daemon snapshot security query debug self plugin theme tui)'");
                 }
                 _ => println!("# Shell '{}' not fully supported. Basic completion:", shell),
             }
@@ -1618,6 +1645,13 @@ fn handle_service(cmd: ServiceCommand, dag: &mut DagEngine, logger: &CesarLogger
                         Ok(()) => {
                             println!("\x1b[32m✓\x1b[0m Signal {} sent to '{}' (PID {})", sig as i32, args.name, pid);
                             if sig == Signal::SIGKILL || sig == Signal::SIGTERM {
+                                if sig == Signal::SIGTERM {
+                                    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+                                    while std::time::Instant::now() < deadline
+                                        && cprocess::check_process(pid) == cprocess::ProcessStatus::Alive {
+                                            std::thread::sleep(std::time::Duration::from_millis(100));
+                                        }
+                                }
                                 dag.mark_stopped(&args.name);
                             }
                         }
@@ -2057,6 +2091,326 @@ fn handle_service(cmd: ServiceCommand, dag: &mut DagEngine, logger: &CesarLogger
                         }
                     }
                 }
+            }
+        }
+    }
+}
+
+fn handle_plugin(cmd: PluginCommand) {
+    match cmd {
+        PluginCommand::List => {
+            let plugins = crate::python::plugin::PluginManager::list();
+            if plugins.is_empty() {
+                println!("No plugins installed.");
+                println!("  Install: csr plugin install <path>");
+                return;
+            }
+            for p in &plugins {
+                println!("\x1b[32m{}\x1b[0m", p.name);
+                println!("  Path:    {}", p.path);
+                if !p.aliases.is_empty() {
+                    println!("  Aliases:");
+                    for (alias, cmd_str) in &p.aliases {
+                        println!("    {}  →  {}", alias, cmd_str);
+                    }
+                }
+                println!();
+            }
+        }
+        PluginCommand::Run(args) => {
+            let (entry, func) = match crate::python::plugin::PluginManager::by_alias(&args.alias) {
+                Some(found) => found,
+                None => {
+                    eprintln!("\x1b[31m✗\x1b[0m No plugin alias '{}' found", args.alias);
+                    return;
+                }
+            };
+            match crate::python::plugin::PluginManager::run(&entry, &func, &args.args) {
+                Ok(output) => println!("{}", output),
+                Err(e) => eprintln!("\x1b[31m✗\x1b[0m Plugin '{}' failed: {}", entry.name, e),
+            }
+        }
+        PluginCommand::Install(args) => {
+            let src = Path::new(&args.path);
+            if !src.exists() {
+                eprintln!("\x1b[31m✗\x1b[0m File not found: {}", args.path);
+                return;
+            }
+            if !src.is_file() {
+                eprintln!("\x1b[31m✗\x1b[0m Not a file: {}", args.path);
+                return;
+            }
+
+            let name = args.name.unwrap_or_else(|| {
+                src.file_stem().unwrap_or_default().to_string_lossy().to_string()
+            });
+
+            let plugins_dir = Path::new("/etc/cesar/plugins");
+            if !plugins_dir.exists() {
+                let _ = fs::create_dir_all(plugins_dir);
+            }
+
+            let dest = plugins_dir.join(src.file_name().unwrap_or_default());
+            if dest.exists() && !args.force {
+                eprintln!("\x1b[33m⚠\x1b[0m Plugin '{}' already exists at {}", name, dest.display());
+                eprintln!("  Use --force to overwrite");
+                return;
+            }
+
+            if let Err(e) = fs::copy(src, &dest) {
+                eprintln!("\x1b[31m✗\x1b[0m Failed to copy plugin: {}", e);
+                return;
+            }
+
+            let mut aliases: HashMap<String, String> = args.aliases.clone().into_iter().collect();
+            if let Some(alias) = args.alias {
+                aliases.insert(alias.clone(), format!("{} {{}}", dest.display()));
+            }
+
+            crate::python::plugin::PluginManager::register(&name, &dest, &aliases);
+
+            println!("\x1b[32m✓\x1b[0m Plugin '{}' installed", name);
+            println!("  Path: {}", dest.display());
+            if !aliases.is_empty() {
+                println!("  Aliases:");
+                for (a, c) in &aliases {
+                    println!("    {}  →  {}", a, c);
+                }
+            }
+        }
+        PluginCommand::Remove(args) => {
+            let plugins = crate::python::plugin::PluginManager::list();
+            let entry = match plugins.iter().find(|p| p.name == args.name) {
+                Some(e) => e,
+                None => {
+                    eprintln!("\x1b[31m✗\x1b[0m Plugin '{}' not found", args.name);
+                    return;
+                }
+            };
+            if let Err(e) = fs::remove_file(&entry.path) {
+                eprintln!("\x1b[33m⚠\x1b[0m Could not remove file: {}", e);
+            }
+            crate::python::plugin::PluginManager::unregister(&args.name);
+            println!("\x1b[32m✓\x1b[0m Plugin '{}' removed", args.name);
+        }
+        PluginCommand::Info(args) => {
+            match crate::python::plugin::PluginManager::by_name(&args.name) {
+                Some(p) => {
+                    println!("\x1b[32m{}\x1b[0m", p.name);
+                    println!("  Path:    {}", p.path);
+                    let path = Path::new(&p.path);
+                    if path.exists() {
+                        let meta = fs::metadata(path).ok();
+                        if let Some(m) = meta {
+                            println!("  Size:    {} bytes", m.len());
+                        }
+                    }
+                    if !p.aliases.is_empty() {
+                        println!("  Aliases:");
+                        for (alias, cmd) in &p.aliases {
+                            println!("    {}  →  {}", alias, cmd);
+                        }
+                    }
+                }
+                None => eprintln!("\x1b[31m✗\x1b[0m Plugin '{}' not found", args.name),
+            }
+        }
+    }
+}
+
+fn handle_theme(cmd: ThemeCommand) {
+    match cmd {
+        ThemeCommand::List => {
+            let themes = crate::python::theme::ThemeEngine::list();
+            if themes.is_empty() {
+                println!("No themes installed.");
+                println!("  Install: csr theme install <path>");
+                return;
+            }
+            for t in &themes {
+                println!("\x1b[32m{}\x1b[0m", t.name);
+                println!("  Path: {}", t.path);
+                println!();
+            }
+        }
+        ThemeCommand::Apply(args) => {
+            let theme = match crate::python::theme::ThemeEngine::by_name(&args.name) {
+                Some(t) => t,
+                None => {
+                    eprintln!("\x1b[31m✗\x1b[0m Theme '{}' not found", args.name);
+                    return;
+                }
+            };
+            match crate::python::theme::ThemeEngine::apply(&theme) {
+                Ok(output) => println!("{}", output),
+                Err(e) => eprintln!("\x1b[31m✗\x1b[0m Theme '{}' failed: {}", theme.name, e),
+            }
+        }
+        ThemeCommand::Install(args) => {
+            let src = Path::new(&args.path);
+            if !src.exists() {
+                eprintln!("\x1b[31m✗\x1b[0m File not found: {}", args.path);
+                return;
+            }
+            if !src.is_file() {
+                eprintln!("\x1b[31m✗\x1b[0m Not a file: {}", args.path);
+                return;
+            }
+
+            let name = args.name.unwrap_or_else(|| {
+                src.file_stem().unwrap_or_default().to_string_lossy().to_string()
+            });
+
+            let themes_dir = Path::new("/etc/cesar/themes");
+            if !themes_dir.exists() {
+                let _ = fs::create_dir_all(themes_dir);
+            }
+
+            let dest = themes_dir.join(src.file_name().unwrap_or_default());
+            if dest.exists() && !args.force {
+                eprintln!("\x1b[33m⚠\x1b[0m Theme '{}' already exists at {}", name, dest.display());
+                eprintln!("  Use --force to overwrite");
+                return;
+            }
+
+            if let Err(e) = fs::copy(src, &dest) {
+                eprintln!("\x1b[31m✗\x1b[0m Failed to copy theme: {}", e);
+                return;
+            }
+
+            crate::python::theme::ThemeEngine::register(&name, &dest);
+
+            println!("\x1b[32m✓\x1b[0m Theme '{}' installed", name);
+            println!("  Path: {}", dest.display());
+        }
+        ThemeCommand::Remove(args) => {
+            let themes = crate::python::theme::ThemeEngine::list();
+            let entry = match themes.iter().find(|t| t.name == args.name) {
+                Some(e) => e,
+                None => {
+                    eprintln!("\x1b[31m✗\x1b[0m Theme '{}' not found", args.name);
+                    return;
+                }
+            };
+            if let Err(e) = fs::remove_file(&entry.path) {
+                eprintln!("\x1b[33m⚠\x1b[0m Could not remove file: {}", e);
+            }
+            crate::python::theme::ThemeEngine::unregister(&args.name);
+            println!("\x1b[32m✓\x1b[0m Theme '{}' removed", args.name);
+        }
+        ThemeCommand::Info(args) => {
+            match crate::python::theme::ThemeEngine::by_name(&args.name) {
+                Some(t) => {
+                    println!("\x1b[32m{}\x1b[0m", t.name);
+                    println!("  Path: {}", t.path);
+                    let path = Path::new(&t.path);
+                    if path.exists() {
+                        let meta = fs::metadata(path).ok();
+                        if let Some(m) = meta {
+                            println!("  Size:    {} bytes", m.len());
+                        }
+                    }
+                }
+                None => eprintln!("\x1b[31m✗\x1b[0m Theme '{}' not found", args.name),
+            }
+        }
+    }
+}
+
+fn handle_tui(cmd: TuiCommand) {
+    match cmd {
+        TuiCommand::List => {
+            let tuis = crate::python::tui::TuiEngine::list();
+            if tuis.is_empty() {
+                println!("No TUIs installed.");
+                println!("  Install: csr tui install <path>");
+                return;
+            }
+            for t in &tuis {
+                println!("\x1b[32m{}\x1b[0m", t.name);
+                println!("  Path: {}", t.path);
+                println!();
+            }
+        }
+        TuiCommand::Apply(args) => {
+            let tui = match crate::python::tui::TuiEngine::by_name(&args.name) {
+                Some(t) => t,
+                None => {
+                    eprintln!("\x1b[31m✗\x1b[0m TUI '{}' not found", args.name);
+                    return;
+                }
+            };
+            match crate::python::tui::TuiEngine::apply(&tui) {
+                Ok(output) => println!("{}", output),
+                Err(e) => eprintln!("\x1b[31m✗\x1b[0m TUI '{}' failed: {}", tui.name, e),
+            }
+        }
+        TuiCommand::Install(args) => {
+            let src = Path::new(&args.path);
+            if !src.exists() {
+                eprintln!("\x1b[31m✗\x1b[0m File not found: {}", args.path);
+                return;
+            }
+            if !src.is_file() {
+                eprintln!("\x1b[31m✗\x1b[0m Not a file: {}", args.path);
+                return;
+            }
+
+            let name = args.name.unwrap_or_else(|| {
+                src.file_stem().unwrap_or_default().to_string_lossy().to_string()
+            });
+
+            let tuis_dir = Path::new("/etc/cesar/tuis");
+            if !tuis_dir.exists() {
+                let _ = fs::create_dir_all(tuis_dir);
+            }
+
+            let dest = tuis_dir.join(src.file_name().unwrap_or_default());
+            if dest.exists() && !args.force {
+                eprintln!("\x1b[33m⚠\x1b[0m TUI '{}' already exists at {}", name, dest.display());
+                eprintln!("  Use --force to overwrite");
+                return;
+            }
+
+            if let Err(e) = fs::copy(src, &dest) {
+                eprintln!("\x1b[31m✗\x1b[0m Failed to copy TUI: {}", e);
+                return;
+            }
+
+            crate::python::tui::TuiEngine::register(&name, &dest);
+
+            println!("\x1b[32m✓\x1b[0m TUI '{}' installed", name);
+            println!("  Path: {}", dest.display());
+        }
+        TuiCommand::Remove(args) => {
+            let tuis = crate::python::tui::TuiEngine::list();
+            let entry = match tuis.iter().find(|t| t.name == args.name) {
+                Some(e) => e,
+                None => {
+                    eprintln!("\x1b[31m✗\x1b[0m TUI '{}' not found", args.name);
+                    return;
+                }
+            };
+            if let Err(e) = fs::remove_file(&entry.path) {
+                eprintln!("\x1b[33m⚠\x1b[0m Could not remove file: {}", e);
+            }
+            crate::python::tui::TuiEngine::unregister(&args.name);
+            println!("\x1b[32m✓\x1b[0m TUI '{}' removed", args.name);
+        }
+        TuiCommand::Info(args) => {
+            match crate::python::tui::TuiEngine::by_name(&args.name) {
+                Some(t) => {
+                    println!("\x1b[32m{}\x1b[0m", t.name);
+                    println!("  Path: {}", t.path);
+                    let path = Path::new(&t.path);
+                    if path.exists() {
+                        let meta = fs::metadata(path).ok();
+                        if let Some(m) = meta {
+                            println!("  Size:    {} bytes", m.len());
+                        }
+                    }
+                }
+                None => eprintln!("\x1b[31m✗\x1b[0m TUI '{}' not found", args.name),
             }
         }
     }

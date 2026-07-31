@@ -44,7 +44,8 @@
 - [Security Model](#security-model)
 - [Filesystem Layout](#filesystem-layout)
 - [Building from Source](#building-from-source)
-- [Testing](#testing)
+- [Python Subsystem](#python-subsystem)
+- [Configuration](#configuration)
 - [Project Structure](#project-structure)
 - [Dependencies](#dependencies)
 
@@ -57,13 +58,12 @@
 
 Cesar is an init system written in Rust. It runs as the first process during boot, manages all system services through an async dependency graph, and provides a CLI for administration after boot completes.
 
-- Single binary (~2MB release, ~15MB debug)
 - Flat `.ini` service configuration files
 - Async parallel boot via Tokio
 - DAG-based dependency resolution with cycle detection
 - Auto-restart watchdog (`Restart=always` / `Restart=on-failure`)
 - Socket activation (Unix stream/datagram, TCP)
-- Markdown-formatted structured logging at `/var/log/cesar.md`
+- Markdown structure logging at `/var/log/cesar.md`
 - Plymouth splash integration (silent by default)
 - Process group isolation with signal forwarding
 - Environment variables and working directory per service
@@ -140,7 +140,7 @@ Requires = dep1, dep2
 Restart = always
 Socket = unix:/run/my-service.sock
 Description = My awesome service
-Environment = HOME=/var/lib/my-service LOG_LEVEL=debug
+Environment = HOME=/var/lib/my-service level=debug
 WorkingDirectory = /var/lib/my-service
 ```
 
@@ -184,7 +184,7 @@ Exec = /system/bin/my-daemon
 Description = Custom daemon
 Restart = always
 WorkingDirectory = /var/lib/my-daemon
-Environment = HOME=/var/lib/my-daemon LOG_LEVEL=info DB_PATH=/var/lib/my-daemon/data.db
+Environment = HOME=/var/lib/my-daemon level=info DB_PATH=/var/lib/my-daemon/data.db
 ```
 
 ### Config search order
@@ -512,7 +512,7 @@ Create a new service config. Requires `--name` and `--exec`.
 csr service create -n my-svc -e /usr/bin/my-svc
 csr service create --name my-svc --exec /usr/bin/my-svc --requires udevd --restart always
 csr service create -n my-svc -e /usr/bin/my-svc -r udevd,seatd -R always -s unix:/run/my-svc.sock -d "My service"
-csr service create -n my-svc -e /usr/bin/my-svc -E "HOME=/var/lib/my-svc LOG_LEVEL=debug" -w /var/lib/my-svc
+csr service create -n my-svc -e /usr/bin/my-svc -E "HOME=/var/lib/my-svc level=debug" -w /var/lib/my-svc
 ```
 
 #### `service rm`
@@ -2808,12 +2808,301 @@ steps:
 </details>
 
 <details>
+<summary>Python Subsystem</summary>
+
+The Python subsystem is a fully out-of-process plugin, theme, and TUI engine. Python runs as a separate process — Cesar never embeds an interpreter. Communication is done via:
+- **CLI aliases** — on-demand execution via `csr plugin run <alias>`
+- **UNIX domain socket events** — fire-and-forget JSON messages at `/run/cesar/event.sock`
+
+### Architecture
+
+```
+┌──────────────────────────────────────────────────────────┐
+│  ┌───────────────┐  ┌───────────────┐   ┌──────────────┐ │
+│  │ PluginManager │  │  EventBus     │   │ CLI dispatch │ │
+│  │  (p.desc)     │  │  (event.sock) │   │ plugin/      │ │
+│  │  (t.desc)     │  └──────┬────────┘   │ theme/tui    │ │
+│  └──────┬────────┘         │            └─────┬────────┘ │
+└─────────┼──────────────────┼──────────────────┼──────────┘
+          │  spawn + timeout │    emit JSON     │
+          ▼                  ▼                  ▼
+┌─────────────────────────────────────────────────────┐
+│ Python Process(es)                                  │
+│  Single-file plugins, themes, and TUIs              │
+│  Each can have its own embedded venv                │
+│  No restrictions — any library, any tool            │
+└─────────────────────────────────────────────────────┘
+```
+
+### Configuration Files
+
+#### `/etc/cesar/p.desc` — Plugin descriptors
+
+```toml
+[plugin.1]
+name = "telegram-notifier"
+path = "/etc/cesar/plugins/telegram.py"
+aliases = { notify = "telegram.py --notify --channel alerts", alert = "telegram.py --alert" }
+
+[plugin.2]
+name = "web-dashboard"
+path = "/etc/cesar/plugins/dashboard.py"
+aliases = { dashboard = "dashboard.py --serve --port 8080", status = "dashboard.py --status" }
+```
+
+Each plugin gets a numbered section `[plugin.N]`. The `name` and `path` fields are required. The `aliases` table maps any alias string to any command string — no limits on characters, flags, or structure. The only restriction is that each alias must be unique across all plugins.
+
+#### `/etc/cesar/t.desc` — Theme and TUI descriptors
+
+```toml
+[theme.1]
+name = "catppuccin"
+path = "/etc/cesar/themes/catppuccin.py"
+
+[theme.2]
+name = "nord"
+path = "/etc/cesar/themes/nord.py"
+
+[tui.1]
+name = "htop-like"
+path = "/etc/cesar/tuis/htop.py"
+
+[tui.2]
+name = "dashboard"
+path = "/etc/cesar/tuis/dashboard.py"
+```
+
+Themes and TUIs share the same `t.desc` file but are in separate sections. `[theme.N]` for themes and `[tui.N]` for TUIs. Both require `name` and `path`.
+
+### CLI Commands
+
+#### Plugin commands
+
+| Command | Description |
+|---------|-------------|
+| `csr plugin list` | List all installed plugins with their aliases |
+| `csr plugin info <name>` | Show plugin details and file size |
+| `csr plugin run <alias> [-- <args>...]` | Execute a plugin by alias with optional extra args |
+| `csr plugin install <path> [-n <name>] [-a <alias>] [-A k=v...]` | Install a plugin file and register it |
+| `csr plugin remove <name>` | Uninstall a plugin |
+
+#### Theme commands
+
+| Command | Description |
+|---------|-------------|
+| `csr theme list` | List all installed themes |
+| `csr theme info <name>` | Show theme details |
+| `csr theme apply <name>` | Execute a theme (runs its Python file) |
+| `csr theme install <path> [-n <name>]` | Install a theme file and register it |
+| `csr theme remove <name>` | Uninstall a theme |
+
+#### TUI commands
+
+| Command | Description |
+|---------|-------------|
+| `csr tui list` | List all installed TUIs |
+| `csr tui info <name>` | Show TUI details |
+| `csr tui apply <name>` | Launch a TUI (runs its Python file) |
+| `csr tui install <path> [-n <name>]` | Install a TUI file and register it |
+| `csr tui remove <name>` | Uninstall a TUI |
+
+### Plugin Execution Model
+
+1. **Alias lookup** — `csr plugin run notify` matches the alias in `p.desc`
+2. **VENV detection** — Cesar checks for `<script>.py.venv/` or `<script-dir>/venv/` and uses `bin/python3` from the venv if found; falls back to system `python3` otherwise
+3. **Spawn** — The command string from the alias + any extra args are passed to `python3`
+4. **Timeout** — Default 30s timeout. If the plugin exceeds it, Cesar sends `SIGKILL`
+5. **Output** — stdout is returned on success, stderr on failure
+
+All execution is non-blocking fire-and-forget at the Cesar level. Plugins run as independent processes and cannot crash the init system.
+
+### Event Bus
+
+Cesar emits JSON events to `/run/cesar/event.sock` (UNIX datagram) during boot and service lifecycle. Plugins can listen on this socket to react to system events:
+
+| Event | Payload | When |
+|-------|---------|------|
+| `boot` | `{"state": "starting"}` | Boot sequence begins |
+| `boot` | `{"total_services": N, "failed_services": N}` | Boot complete |
+| `service` | `{"name": "...", "state": "started", "pid": N}` | Service started |
+| `service` | `{"name": "...", "state": "failed", "pid": 0}` | Service failed |
+| `service` | `{"name": "...", "state": "restarted", "pid": N}` | Service auto-restarted |
+| `service` | `{"name": "...", "state": "restart-failed", "pid": 0}` | Auto-restart failed |
+| `shutdown` | `null` | Graceful shutdown initiated |
+
+A Python plugin listening for events:
+
+```python
+import json, socket, os
+
+SOCKET_PATH = "/run/cesar/event.sock"
+
+if os.path.exists(SOCKET_PATH):
+    os.remove(SOCKET_PATH)
+
+sock = socket.socket(socket.AF_UNIX, socket.SOCK_DGRAM)
+sock.bind(SOCKET_PATH)
+sock.settimeout(1.0)
+
+while True:
+    try:
+        data, _ = sock.recvfrom(4096)
+        event = json.loads(data)
+        if event["event"] == "service" and event["data"]["state"] == "failed":
+            print(f"ALERT: Service {event['data']['name']} failed!")
+    except socket.timeout:
+        continue
+```
+
+### VENV Support
+
+Each plugin/theme/TUI is a single Python file that can manage its own virtual environment. Cesar auto-detects venvs in two locations (checked in order):
+
+1. **Adjacent** — `<script-path>.py.venv/` (e.g., `telegram.py.venv/`)
+2. **Shared** — `<script-dir>/venv/`
+
+If found, Cesar uses `<venv>/bin/python3` as the interpreter. The Python file itself is responsible for creating its venv on first run, installing dependencies, etc.
+
+### No Restrictions
+
+- **No specific structure** — A plugin can be 10 lines or 10,000 lines
+- **No naming conventions** — Names can contain any characters
+- **No alias limits** — Any alias string, any flag combination, any command string
+- **No library restrictions** — Import anything from the Python ecosystem
+- **No file size limits** — A single file can contain an entire application
+- **No hooks required** — The file is just a Python script; what it does is entirely up to the author
+
+### Example Plugin
+
+```python
+#!/usr/bin/env python3
+"""telegram-notifier: Send alerts to Telegram when services fail."""
+
+import json, os, sys, requests
+
+VENV_DIR = os.path.join(os.path.dirname(__file__), f"{os.path.basename(__file__)}.venv")
+
+def ensure_venv():
+    if not os.path.exists(VENV_DIR):
+        import subprocess
+        subprocess.run([sys.executable, "-m", "venv", VENV_DIR], check=True)
+        pip = os.path.join(VENV_DIR, "bin", "pip")
+        subprocess.run([pip, "install", "requests"], check=True)
+
+def main():
+    ensure_venv()
+    # Use the venv's Python for the actual logic
+    msg = " ".join(sys.argv[1:]) or "Service alert from Cesar"
+    token = os.environ.get("TELEGRAM_TOKEN", "")
+    chat_id = os.environ.get("TELEGRAM_CHAT", "")
+    if token and chat_id:
+        requests.post(f"https://api.telegram.org/bot{token}/sendMessage",
+                      json={"chat_id": chat_id, "text": msg})
+
+if __name__ == "__main__":
+    main()
+```
+
+---
+
+</details>
+
+<details>
+<summary>Configuration</summary>
+
+Cesar reads its main configuration from `/etc/cesar/cesar.ini`. All fields have defaults, so the file is optional.
+
+### `[Cesar]` section
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `level` | string | `info` | Log level: `debug`, `info`, `warning`, `error` |
+| `log_file` | string | `/var/log/cesar.md` | Path to the markdown log file |
+
+### `[Plugin]` section
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `enabled` | bool | `true` | Enable/disable the entire plugin subsystem |
+| `timeout` | integer | `30` | Maximum execution time per plugin (seconds) |
+| `event_socket` | string | `/run/cesar/event.sock` | UNIX datagram socket path for event emission |
+
+### `[TUI]` section
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `enabled` | bool | `true` | Enable/disable TUI features |
+| `theme` | string | `default` | Theme to load at startup |
+| `default_tui` | string | `default` | Default TUI to launch |
+| `interval` | integer | `1000` | UI refresh rate (milliseconds) |
+| `scrollback` | integer | `5000` | Scrollback buffer size (lines) |
+| `enable_mouse` | bool | `true` | Enable mouse support |
+| `enable_ansi` | bool | `true` | Enable ANSI escape code support |
+| `color_depth` | string | `truecolor` | Color depth: `truecolor`, `256`, `16`, `8` |
+| `status_bar` | bool | `true` | Show status bar |
+| `keybindings` | string | `default` | Keybinding profile: `default`, `vim`, `emacs`, `none` |
+| `border_style` | string | `rounded` | Border style: `rounded`, `sharp`, `double`, `none` |
+| `show_help` | bool | `true` | Show help bar |
+| `show_status` | bool | `true` | Show status indicators |
+| `show_uptime` | bool | `true` | Show system uptime |
+| `show_services` | bool | `true` | Show service list |
+| `show_resources` | bool | `true` | Show resource usage |
+| `show_logs` | bool | `true` | Show log panel |
+| `compact` | bool | `false` | Compact layout (hide labels, minimize spacing) |
+| `vim` | bool | `false` | Vim-style navigation keys |
+| `notifications` | bool | `true` | Enable desktop-style notifications |
+| `notification_timeout` | integer | `5000` | Notification dismiss timeout (milliseconds) |
+| `animation` | bool | `true` | Enable UI animations |
+| `animation` | string | `normal` | Animation speed: `slow`, `normal`, `fast`, `instant` |
+| `font_size` | integer | `12` | Terminal font size (points) |
+| `line_height` | float | `1.0` | Line height multiplier |
+| `letter_spacing` | float | `0.0` | Letter spacing (points) |
+| `padding` | integer | `2` | Padding around content (cells) |
+| `margin` | integer | `1` | Margin around UI (cells) |
+| `scroll_offset` | integer | `0` | Lines to keep visible above/below cursor |
+| `wrap` | bool | `true` | Word wrap in text panels |
+| `tab_width` | integer | `4` | Tab stop width |
+| `cursor_style` | string | `block` | Cursor shape: `block`, `underline`, `bar`, `hidden` |
+| `cursor_blink` | bool | `true` | Blinking cursor |
+| `selection_clipboard` | bool | `true` | Copy selection to clipboard |
+| `link_underline` | string | `hover` | Link underline mode: `hover`, `always`, `never` |
+| `search_case_sensitive` | bool | `false` | Default case sensitivity for search |
+| `search_regex` | bool | `false` | Enable regex search by default |
+| `search_highlight_color` | string | `yellow` | Color for search matches |
+| `bell` | string | `visual` | Bell style: `visual`, `audible`, `none` |
+
+### Example `/etc/cesar/cesar.ini`
+
+```ini
+[Cesar]
+level = debug
+
+[Plugin]
+enabled = true
+timeout = 60
+
+[TUI]
+enabled = true
+theme = catppuccin
+color_depth = 256
+compact = true
+vim = true
+scrollback = 10000
+interval = 500
+animation = fast
+```
+
+---
+
+</details>
+
+<details>
 <summary>Project Structure</summary>
 
 ```
 Cesar/
-├── Cargo.toml              # Package manifest (v0.0.7, edition 2024)
-├── LICENSE                  # Unlicense (public domain)
+├── Cargo.toml              # Package (v0.0.7, edition 2024)
+├── LICENSE                 # MIT License
 ├── .gitignore              # Rust/IDE/OS ignores
 ├── .gitattributes          # Codeberg linguist hints
 ├── services/               # Example service configs
@@ -2860,14 +3149,14 @@ Cesar/
 <details>
 <summary>Contributing</summary>
 
-Cesar is hosted on [**`Codeberg`**](https://codeberg.org/Cudane). Issues and pull requests are welcome.
+Cesar on [**`GitHub`**](https://github.com/Mapuse). Issues and pull requests are welcome.
 
 ```sh
-git clone https://codeberg.org/Cudane/Cesar.git
-cd cesar
+git clone https://github.com/Mapuse/Cesar.git
+cd Cesar
 cargo check
-cargo build
-cargo test
+cargo build --release
+cargo test -- --nocapture
 ```
 
 Follow existing code style. No comments unless requested. All error paths must provide real diagnostics with `[CTX]` and `[FIX]` annotations.
@@ -2890,6 +3179,8 @@ Follow existing code style. No comments unless requested. All error paths must p
 <details>
 <summary>License</summary>
 
-[**`Unlicense`**](LICENSE) — Do whatever you want.
+## License
+
+**MIT License** ─ See [[**`LICENSE`**](https://github.com/Mapuse/.github/blob/profile/LICENSE)] for More Details.
 
 </details>

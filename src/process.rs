@@ -55,15 +55,17 @@ pub fn spawn_service_env(
                     unsafe { libc::chdir(c_dir.as_ptr()); }
                 }
 
-            let mut c_env_vars: Vec<CString> = Vec::new();
             for (k, v) in env_vars {
-                if let Ok(entry) = CString::new(format!("{}={}", k, v)) {
-                    c_env_vars.push(entry);
-                }
+                if let Ok(c_key) = CString::new(k.as_str())
+                    && let Ok(c_value) = CString::new(v.as_str()) {
+                        unsafe {
+                            libc::setenv(c_key.as_ptr(), c_value.as_ptr(), 1);
+                        }
+                    }
             }
 
             let c_exec = CString::new(parts[0]).unwrap_or_else(|_| {
-                CString::new("/bin/sh").unwrap()
+                CString::new("/bin/sh").expect("failed to create CString for /bin/sh")
             });
 
             let mut c_args: Vec<CString> = Vec::with_capacity(parts.len());
@@ -88,7 +90,7 @@ pub fn spawn_service_env(
 
 fn log_to_devnull() {
     unsafe {
-        let devnull = CString::new("/dev/null").unwrap();
+        let devnull = CString::new("/dev/null").expect("NUL-free /dev/null path");
         let fd = libc::open(devnull.as_ptr(), libc::O_RDWR);
         if fd >= 0 {
             libc::dup2(fd, libc::STDIN_FILENO);
@@ -100,16 +102,15 @@ fn log_to_devnull() {
 }
 
 pub fn check_process(pid: u32) -> ProcessStatus {
-    let pid = Pid::from_raw(pid as i32);
-    match waitpid(pid, Some(WaitPidFlag::WNOHANG)) {
-        Ok(WaitStatus::StillAlive) => ProcessStatus::Alive,
-        Ok(WaitStatus::Exited(_, status)) => {
-            if status == 0 { ProcessStatus::Exited }
-            else { ProcessStatus::Failed(status) }
+    unsafe {
+        if libc::kill(pid as i32, 0) == 0 {
+            ProcessStatus::Alive
+        } else {
+            match std::io::Error::last_os_error().raw_os_error() {
+                Some(libc::EPERM) => ProcessStatus::Alive,
+                _ => ProcessStatus::Unknown,
+            }
         }
-        Ok(WaitStatus::Signaled(_, signal, _)) => ProcessStatus::Signaled(signal as i32),
-        Ok(_) => ProcessStatus::Stopped,
-        Err(_) => ProcessStatus::Unknown,
     }
 }
 

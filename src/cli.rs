@@ -63,6 +63,18 @@ pub enum TopCommand {
 
     #[command(alias("me"), subcommand)]
     Self_(SelfCommand),
+
+
+    #[command(alias("plug"), subcommand)]
+    Plugin(PluginCommand),
+
+
+    #[command(alias("thm"), subcommand)]
+    Theme(ThemeCommand),
+
+
+    #[command(alias("tui"), subcommand)]
+    Tui(TuiCommand),
 }
 
 
@@ -2082,4 +2094,142 @@ pub struct SelfConfigArgs {
 
     #[arg(short = 'g', long = "get")]
     pub get: Option<String>,
+}
+
+
+#[derive(Subcommand)]
+pub enum PluginCommand {
+
+    List,
+
+    Run(PluginRunArgs),
+
+    Install(PluginInstallArgs),
+
+    Remove(PluginRemoveArgs),
+
+    Info(PluginInfoArgs),
+}
+
+#[derive(Args)]
+pub struct PluginRunArgs {
+    pub alias: String,
+
+    #[arg(allow_hyphen_values = true, trailing_var_arg = true)]
+    pub args: Vec<String>,
+}
+
+#[derive(Args)]
+pub struct PluginInstallArgs {
+    pub path: String,
+
+    #[arg(short = 'n', long = "name")]
+    pub name: Option<String>,
+
+    #[arg(short = 'a', long = "alias")]
+    pub alias: Option<String>,
+
+    #[arg(short = 'A', long = "aliases", value_parser = parse_key_val)]
+    pub aliases: Vec<(String, String)>,
+
+    #[arg(short = 'f', long = "force")]
+    pub force: bool,
+}
+
+#[derive(Args)]
+pub struct PluginRemoveArgs {
+    pub name: String,
+}
+
+#[derive(Args)]
+pub struct PluginInfoArgs {
+    pub name: String,
+}
+
+
+#[derive(Subcommand)]
+pub enum ThemeCommand {
+
+    List,
+
+    Apply(ThemeApplyArgs),
+
+    Install(ThemeInstallArgs),
+
+    Remove(ThemeRemoveArgs),
+
+    Info(ThemeInfoArgs),
+}
+
+#[derive(Args)]
+pub struct ThemeApplyArgs {
+    pub name: String,
+}
+
+#[derive(Args)]
+pub struct ThemeInstallArgs {
+    pub path: String,
+
+    #[arg(short = 'n', long = "name")]
+    pub name: Option<String>,
+
+    #[arg(short = 'f', long = "force")]
+    pub force: bool,
+}
+
+#[derive(Args)]
+pub struct ThemeRemoveArgs {
+    pub name: String,
+}
+
+#[derive(Args)]
+pub struct ThemeInfoArgs {
+    pub name: String,
+}
+
+#[derive(Subcommand)]
+pub enum TuiCommand {
+
+    List,
+
+    Apply(TuiApplyArgs),
+
+    Install(TuiInstallArgs),
+
+    Remove(TuiRemoveArgs),
+
+    Info(TuiInfoArgs),
+}
+
+#[derive(Args)]
+pub struct TuiApplyArgs {
+    pub name: String,
+}
+
+#[derive(Args)]
+pub struct TuiInstallArgs {
+    pub path: String,
+
+    #[arg(short = 'n', long = "name")]
+    pub name: Option<String>,
+
+    #[arg(short = 'f', long = "force")]
+    pub force: bool,
+}
+
+#[derive(Args)]
+pub struct TuiRemoveArgs {
+    pub name: String,
+}
+
+#[derive(Args)]
+pub struct TuiInfoArgs {
+    pub name: String,
+}
+
+fn parse_key_val(s: &str) -> Result<(String, String), String> {
+    let mut parts = s.splitn(2, '=');
+    let key = parts.next().ok_or("missing key")?.to_string();
+    let val = parts.next().ok_or("missing value")?.to_string();
+    Ok((key, val))
 }

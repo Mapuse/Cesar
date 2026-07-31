@@ -103,17 +103,8 @@ fn parse_log_sections(content: &str) -> Vec<(String, Vec<String>)> {
 fn diagnose_error(service_name: &str, error_msg: &str) -> Vec<(String, String)> {
     let mut diag = Vec::new();
 
-    if error_msg.contains("Exec path") && error_msg.contains("not found") {
-        let parts: Vec<&str> = error_msg.split_whitespace().collect();
-        let exec_path = if let Some(idx) = parts.iter().position(|p| *p == "'") {
-            if let Some(end) = parts[idx+1..].iter().position(|p| *p == "'") {
-                parts[idx+1..idx+1+end].join(" ")
-            } else {
-                parts[idx+1..].join(" ")
-            }
-        } else {
-            String::new()
-        };
+    if error_msg.contains("Exec") && error_msg.contains("not found") {
+        let exec_path = error_msg.split('\'').nth(1).unwrap_or_default();
 
         if !exec_path.is_empty() {
             if !Path::new(&exec_path).exists() {
@@ -139,7 +130,7 @@ fn diagnose_error(service_name: &str, error_msg: &str) -> Vec<(String, String)> 
                         }
                     }
                 }
-            } else if let Ok(meta) = fs::metadata(&exec_path)
+            } else if let Ok(meta) = fs::metadata(exec_path)
                 && meta.permissions().mode() & 0o111 == 0 {
                     diag.push((
                         format!("Binary '{}' exists but is not executable", exec_path),

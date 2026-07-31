@@ -185,8 +185,8 @@ impl HealthReport {
         unsafe {
             let mut stat: libc::statvfs = std::mem::zeroed();
             if libc::statvfs(c"/".as_ptr().cast(), &mut stat) == 0 {
-                let total = stat.f_blocks as u64 * stat.f_frsize as u64;
-                let avail = stat.f_bavail as u64 * stat.f_frsize as u64;
+                let total = stat.f_blocks * stat.f_frsize;
+                let avail = stat.f_bavail * stat.f_frsize;
                 disk_used_pct = (total - avail).checked_mul(100).and_then(|v| v.checked_div(total)).unwrap_or(0);
                 disk_avail = format_bytes(avail);
             }
