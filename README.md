@@ -15,7 +15,7 @@
 
 The Init System of **`[Cudane]`**, a Good Replace of **`[Systemd]`** Written in **`[Rust]`** That Completely **`[Silent]`**, So You Won't Be Scared Again of Terrifying Streaming Output, Cesar runs as the first process during boot, manages all system services through an **`[Async]`** dependency graph, and provides a **`[CLI]`** for administration after boot completes.
 
-- **`Version`**: **`[0.0.7]`**
+- **`[Version]`**: **`[0.0.7]`**
 
 `▐▄` `-` `▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▌`
 
