@@ -34,14 +34,14 @@ The Init System of **`[Cudane]`**, a Good Replace of **`[Systemd]`** Written in 
   - **`[[system]]`**(#system)
   - **`[[config]]`**(#config)
   - **`[[log]]`**(#log)
-  - **`[[socket](#socket)
+  - **`[[socket]`**(#socket)
   - **`[[daemon]]`**(#daemon)
   - **`[[snapshot]]`**(#snapshot)
   - **`[[security]]`**(#security)
   - **`[[query]]`**(#query)
   - **`[[debug]]`**(#debug)
   - **`[[self]]`**(#self)
-- **`[[CLI]]`**(##cli)
+- **`[[Workflow]]`**(#workflow)
 - **`[[Boot]]`**(#boot)
 - **`[[Resolution]]`**(#resolution)
 - **`[[State]]`**(#state)
@@ -2179,9 +2179,10 @@ csr self config -S boot.verbose=true
 </details>
 
 <details>
-<summary>CLI</summary>
+<summary>Workflow</summary>
 
-```
+### Binary Tree
+ 
 csr
 ├── service (svc)
 │   ├── start    (up)    -n NAME [-w] [-t SEC]
@@ -2325,7 +2326,6 @@ csr
     ├── version           [-j] [-s]
     ├── completions       [-s SHELL] [-o FILE]
     └── config            [-s] [-S SET] [-g GET]
-```
 
 ### Aliases Summary
 
