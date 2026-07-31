@@ -13,48 +13,48 @@
 
 `▐▀` `-` `▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▌`
 
-The Init System of [**`Cudane`**], a Good Replace of [**`Systemd`**] Written in [**`Rust`**] That Completely [**`Silent`**], So You Won't Be Scared Again of Terrifying Streaming Output, Cesar runs as the first process during boot, manages all system services through an [**`Async`**] dependency graph, and provides a [**`CLI`**] for administration after boot completes.
+The Init System of **`[Cudane]`**, a Good Replace of **`[Systemd]`** Written in **`[Rust]`** That Completely **`[Silent]`**, So You Won't Be Scared Again of Terrifying Streaming Output, Cesar runs as the first process during boot, manages all system services through an **`[Async]`** dependency graph, and provides a **`[CLI]`** for administration after boot completes.
 
-- **`Version`**: [**`0.0.7`**]
+- **`Version`**: **`[0.0.7]`**
 
 `▐▄` `-` `▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▌`
 
 <details>
 <summary>Contents</summary>
 
-- [Overview](#overview)
-- [Architecture](#architecture)
-- [Installation](#installation)
-- [Binaries](#binaries)
-- [Services](#services)
-- [CLI](#cli)
-  - [Flags](#flags)
-  - [conventions](#conventions)
-  - [service](#service)
-  - [system](#system)
-  - [config](#config)
-  - [log](#log)
-  - [socket](#socket)
-  - [daemon](#daemon)
-  - [snapshot](#snapshot)
-  - [security](#security)
-  - [query](#query)
-  - [debug](#debug)
-  - [self](#self)
-- [CLI](##cli)
-- [Boot](#boot)
-- [Resolution](#resolution)
-- [State](#state)
-- [Logging](#logging)
-- [Sockets](#sockets)
-- [Snapshots](#snapshots)
-- [Models](#models)
-- [Filesystem](#filesystem)
-- [Building](#building)
-- [Python](#python)
-- [Configuration](#configuration)
-- [Structure](#structure)
-- [Dependencies](#dependencies)
+- **`[[Overview]]`**(#overview)
+- **`[[Architecture]]`**(#architecture)
+- **`[[Installation]]`**(#installation)
+- **`[[Binaries]]`**(#binaries)
+- **`[[Services]]`**(#services)
+- **`[[CLI]]`**(#cli)
+  - **`[[Flags]]`**(#flags)
+  - **`[[Conventions]]`**(#conventions)
+  - **`[[service]]`**(#service)
+  - **`[[system]]`**(#system)
+  - **`[[config]]`**(#config)
+  - **`[[log]]`**(#log)
+  - **`[[socket](#socket)
+  - **`[[daemon]]`**(#daemon)
+  - **`[[snapshot]]`**(#snapshot)
+  - **`[[security]]`**(#security)
+  - **`[[query]]`**(#query)
+  - **`[[debug]]`**(#debug)
+  - **`[[self]]`**(#self)
+- **`[[CLI]]`**(##cli)
+- **`[[Boot]]`**(#boot)
+- **`[[Resolution]]`**(#resolution)
+- **`[[State]]`**(#state)
+- **`[[Logging]]`**(#logging)
+- **`[[Sockets]]`**(#sockets)
+- **`[[Snapshots]]`**(#snapshots)
+- **`[[Models]]`**(#models)
+- **`[[Filesystem]]`**(#filesystem)
+- **`[[Building]]`**(#building)
+- **`[[Python]]`**(#python)
+- **`[[Configuration]]`**(#configuration)
+- **`[[Structure]]`**(#structure)
+- **`[[Dependencies]]`**(#dependencies)
 
 ---
 
@@ -214,7 +214,7 @@ Options:
   -V, --version   Print version
 ```
 
-### conventions
+### Conventions
 
 - All subcommands support `-` and `--` flags interchangeably
 - Mixed flagging is supported: `csr service -n greetd -f` is the same as `csr service --name greetd --force`
@@ -2687,14 +2687,14 @@ ln /system/bin/csr /sbin/init
 
 **Integration with MCX:**
 
-Cesar is the default init system for Cudane Linux. The [[[**`MCX`**]]](https://codeberg.org/Cudane/MCX) package manager handles:
+Cesar is the default init system for Cudane Linux. The [**`[MCX]`**](https://github.com/Mapuse/MCX) package manager handles:
 
 - Installing and updating the `cesar` package
 - Managing service config files via `/etc/cesar/services/`
 - Coordinating with Cesar for service lifecycle events
 - Package-level cgroup resource limits (`mcx --cgroup enforce`)
 
-**Runtime directories:**
+**Directories:**
 
 ```
 /system/lib/cesar/services/    # System service configs (read-only)
@@ -3154,7 +3154,7 @@ Cesar/
 <details>
 <summary>Contributing</summary>
 
-Cesar on [[[**`GitHub`**]]](https://github.com/Mapuse). Issues and pull requests are welcome.
+Cesar on [[**`[GitHub]`**]](https://github.com/Mapuse). Issues and pull requests are welcome.
 
 ```sh
 git clone https://github.com/Mapuse/Cesar.git
@@ -3172,11 +3172,11 @@ Follow existing code style. No comments unless requested. All error paths must p
 
 ## Credits
 
-[**`Cesar`**] is part of the [**`Cudane`**] ecosystem.
+**`[Cesar]`** is part of the **`[Cudane]`** ecosystem.
 
-- [**`Cudane`**] — The Distribution.
-- [**`MCX`**] — Package Manager.
+- **`[Cudane]`** — The Distribution.
+- **`[MCX]`** — Package Manager.
 
 ## License
 
-**MIT License** ─ See [[**`LICENSE`**](https://github.com/Mapuse/.github/blob/profile/LICENSE)] for More Details.
+**MIT License** ─ See [**`[LICENSE]`**](https://github.com/Mapuse/.github/blob/profile/LICENSE) for More Details.
