@@ -73,7 +73,7 @@ pub enum TopCommand {
     Theme(ThemeCommand),
 
 
-    #[command(alias("tui"), subcommand)]
+    #[command(subcommand)]
     Tui(TuiCommand),
 }
 

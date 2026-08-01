@@ -36,7 +36,7 @@ pub fn load() -> Config {
         Ok(content) => match toml::from_str::<Config>(&content) {
             Ok(cfg) => cfg,
             Err(e) => {
-                eprintln!("cesar: error parsing {}: {}", path.display(), e);
+                eprintln!("[Error] :: error parsing {}: {}", path.display(), e);
                 Config::default()
             }
         },

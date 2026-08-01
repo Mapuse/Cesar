@@ -26,7 +26,7 @@ impl PythonEngine {
             });
         });
         if !Python::with_gil(|_| true) {
-            eprintln!("cesar: python engine unavailable, falling back to native");
+            eprintln!("[Warning] :: python engine unavailable, falling back to native");
             return Self { theme: None, tui: None, plugins: plugin::PluginManager::new(), tui_mode: false };
         }
         if !cfg.venv_path.is_empty() {
@@ -36,14 +36,14 @@ impl PythonEngine {
             theme::ThemeEngine::load(cfg)
         }))
         .unwrap_or_else(|e| {
-            eprintln!("cesar: python theme failed to load: {:?}", e);
+            eprintln!("[Warning] :: python theme failed to load: {:?}", e);
             None
         });
         let tui = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
             tui::TuiEngine::load(cfg)
         }))
         .unwrap_or_else(|e| {
-            eprintln!("cesar: python tui failed to load: {:?}", e);
+            eprintln!("[Warning] :: python tui failed to load: {:?}", e);
             None
         });
         let mut plugins = plugin::PluginManager::new();
@@ -65,7 +65,7 @@ pub fn expand_tilde(path: &str) -> String {
 fn activate_venv(path_str: &str) {
     let venv = std::path::PathBuf::from(expand_tilde(path_str));
     if !venv.exists() {
-        eprintln!("cesar: venv not found: {}", venv.display());
+        eprintln!("[Warning] :: venv not found: {}", venv.display());
         return;
     }
     let _ = Python::with_gil(|py| -> PyResult<()> {
@@ -91,11 +91,11 @@ fn activate_venv(path_str: &str) {
         for p in &candidates {
             if p.exists() {
                 sys_path.call_method1("insert", (0, p.to_str().unwrap_or_default()))?;
-                eprintln!("cesar: activated venv: {} (site-packages: {})", venv.display(), p.display());
+                eprintln!("[Done] :: activated venv: {} (site-packages: {})", venv.display(), p.display());
                 return Ok(());
             }
         }
-        eprintln!("cesar: venv site-packages not found in: {}", venv.display());
+        eprintln!("[Warning] :: venv site-packages not found in: {}", venv.display());
         Ok(())
     });
 }

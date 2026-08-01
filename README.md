@@ -2847,9 +2847,10 @@ steps:
 
 ## Python
 
-The Python is a fully out-of-process plugin, theme, and TUI engine. Python runs as a separate process — Cesar never embeds an interpreter. Communication is done via:
-- **CLI aliases** — on-demand execution via `csr plugin run <alias>`
-- **UNIX domain socket events** — fire-and-forget JSON messages at `/run/cesar/event.sock`
+The Python subsystem is a dual-mode plugin, theme, and TUI engine.
+ - **In-process (embedded)** — the `PythonEngine` embeds a Python interpreter via PyO3 to load themes, TUIs, and hook plugins and render prompts in-process when the `[python]` section is enabled.
+ - **Out-of-process (CLI)** — `csr plugin run`, `csr theme apply`, and `csr tui apply` spawn `python3`/`sh` as separate processes; Cesar never runs untrusted plugin code inside the init process for these commands.
+ - **UNIX domain socket events** — fire-and-forget JSON messages at `/run/cesar/event.sock`
 
 ### Architecture
 
@@ -2889,6 +2890,8 @@ aliases = { dashboard = "dashboard.py --serve --port 8080", status = "dashboard.
 
 Each plugin gets a numbered section `[plugin.N]`. The `name` and `path` fields are required. The `aliases` table maps any alias string to any command string — no limits on characters, flags, or structure. The only restriction is that each alias must be unique across all plugins.
 
+The descriptor is located at the first existing, parseable file among (in order): `~/.config/cesar/p.desc`, `/etc/cesar/p.desc`, `./p.desc`, or `<cwd>/p.desc`. `path` values support `~` expansion. Plugins defined here appear automatically in `csr plugin list`, `info`, `run`, and `remove` without a separate install step.
+
 #### `/etc/cesar/t.desc` — Theme and TUI descriptors
 
 ```toml
@@ -2909,7 +2912,7 @@ name = "dashboard"
 path = "/etc/cesar/tuis/dashboard.py"
 ```
 
-Themes and TUIs share the same `t.desc` file but are in separate sections. `[theme.N]` for themes and `[tui.N]` for TUIs. Both require `name` and `path`.
+Themes and TUIs share the same `t.desc` file but are in separate sections. `[theme.N]` for themes and `[tui.N]` for TUIs. Both require `name` and `path`; an optional `description` string is shown as a `Desc:` line in `csr theme list`/`info` and `csr tui list`/`info`. The descriptor is loaded from the first existing, parseable file among (in order): `~/.config/cesar/t.desc`, `/etc/cesar/t.desc`, `./t.desc`, or `<cwd>/t.desc`. `path` values support `~` expansion.
 
 ### CLI Commands
 
@@ -2919,8 +2922,8 @@ Themes and TUIs share the same `t.desc` file but are in separate sections. `[the
 |---------|-------------|
 | `csr plugin list` | List all installed plugins with their aliases |
 | `csr plugin info <name>` | Show plugin details and file size |
-| `csr plugin run <alias> [-- <args>...]` | Execute a plugin by alias with optional extra args |
-| `csr plugin install <path> [-n <name>] [-a <alias>] [-A k=v...]` | Install a plugin file and register it |
+| `csr plugin run <alias> [args...]` | Execute a plugin by alias with optional extra args |
+| `csr plugin install <path> [-n <name>] [-a <alias>] [-A k=v...] [-f]` | Install a plugin file into `/etc/cesar/plugins` and register it (`-f` forces overwrite) |
 | `csr plugin remove <name>` | Uninstall a plugin |
 
 #### Theme commands
@@ -2930,7 +2933,7 @@ Themes and TUIs share the same `t.desc` file but are in separate sections. `[the
 | `csr theme list` | List all installed themes |
 | `csr theme info <name>` | Show theme details |
 | `csr theme apply <name>` | Execute a theme (runs its Python file) |
-| `csr theme install <path> [-n <name>]` | Install a theme file and register it |
+| `csr theme install <path> [-n <name>] [-f]` | Install a theme file into `/etc/cesar/themes` and register it (`-f` forces overwrite) |
 | `csr theme remove <name>` | Uninstall a theme |
 
 #### TUI commands
@@ -2940,18 +2943,17 @@ Themes and TUIs share the same `t.desc` file but are in separate sections. `[the
 | `csr tui list` | List all installed TUIs |
 | `csr tui info <name>` | Show TUI details |
 | `csr tui apply <name>` | Launch a TUI (runs its Python file) |
-| `csr tui install <path> [-n <name>]` | Install a TUI file and register it |
+| `csr tui install <path> [-n <name>] [-f]` | Install a TUI file into `/etc/cesar/tuis` and register it (`-f` forces overwrite) |
 | `csr tui remove <name>` | Uninstall a TUI |
 
 ### Plugin Execution Model
 
-1. **Alias lookup** — `csr plugin run notify` matches the alias in `p.desc`
-2. **VENV detection** — Cesar checks for `<script>.py.venv/` or `<script-dir>/venv/` and uses `bin/python3` from the venv if found; falls back to system `python3` otherwise
-3. **Spawn** — The command string from the alias + any extra args are passed to `python3`
-4. **Timeout** — Default 30s timeout. If the plugin exceeds it, Cesar sends `SIGKILL`
-5. **Output** — stdout is returned on success, stderr on failure
+1. **Alias lookup** — `csr plugin run <alias>` resolves the alias string against the plugin registry (populated from `p.desc` or `csr plugin install`).
+2. **Substitution** — If the alias command contains `{}`, the extra CLI args replace it; otherwise extra args are appended.
+3. **Spawn** — The resulting command string is executed via `sh -c` with the working directory set to the plugin's parent directory.
+4. **Output** — stdout is returned on success, stderr on failure.
 
-All execution is non-blocking fire-and-forget at the Cesar level. Plugins run as independent processes and cannot crash the init system.
+Execution is synchronous at the command level. Plugins run as independent processes and cannot crash the init system.
 
 ### Event Bus
 
@@ -2993,12 +2995,7 @@ while True:
 
 ### VENV Support
 
-Each plugin/theme/TUI is a single Python file that can manage its own virtual environment. Cesar auto-detects venvs in two locations (checked in order):
-
-1. **Adjacent** — `<script-path>.py.venv/` (e.g., `telegram.py.venv/`)
-2. **Shared** — `<script-dir>/venv/`
-
-If found, Cesar uses `<venv>/bin/python3` as the interpreter. The Python file itself is responsible for creating its venv on first run, installing dependencies, etc.
+Each plugin/theme/TUI is a single Python file that can manage its own virtual environment. When the embedded `[python]` engine is enabled, an explicit `venv_path` in the config activates that virtualenv's `site-packages` before any theme, TUI, or plugin is loaded. Out-of-process commands (`csr plugin run`, `csr theme apply`, `csr tui apply`) execute the command/script as written; a plugin that needs dependencies can create and use its own venv from inside its script.
 
 ### No Restrictions
 

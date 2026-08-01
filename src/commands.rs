@@ -2230,6 +2230,9 @@ fn handle_theme(cmd: ThemeCommand) {
             for t in &themes {
                 println!("\x1b[32m{}\x1b[0m", t.name);
                 println!("  Path: {}", t.path);
+                if !t.description.is_empty() {
+                    println!("  Desc: {}", t.description);
+                }
                 println!();
             }
         }
@@ -2303,6 +2306,9 @@ fn handle_theme(cmd: ThemeCommand) {
                 Some(t) => {
                     println!("\x1b[32m{}\x1b[0m", t.name);
                     println!("  Path: {}", t.path);
+                    if !t.description.is_empty() {
+                        println!("  Desc: {}", t.description);
+                    }
                     let path = Path::new(&t.path);
                     if path.exists() {
                         let meta = fs::metadata(path).ok();
@@ -2329,6 +2335,9 @@ fn handle_tui(cmd: TuiCommand) {
             for t in &tuis {
                 println!("\x1b[32m{}\x1b[0m", t.name);
                 println!("  Path: {}", t.path);
+                if !t.description.is_empty() {
+                    println!("  Desc: {}", t.description);
+                }
                 println!();
             }
         }
@@ -2402,6 +2411,9 @@ fn handle_tui(cmd: TuiCommand) {
                 Some(t) => {
                     println!("\x1b[32m{}\x1b[0m", t.name);
                     println!("  Path: {}", t.path);
+                    if !t.description.is_empty() {
+                        println!("  Desc: {}", t.description);
+                    }
                     let path = Path::new(&t.path);
                     if path.exists() {
                         let meta = fs::metadata(path).ok();
