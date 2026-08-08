@@ -1,28 +1,25 @@
 # Cesar — build.ninja (auto-detects amd64/arm64)
 # Usage: ninja
-#        ninja install DESTDIR=/mnt PREFIX=/system/bin
+#        DESTDIR=/mnt ninja install
 
 rule cargo
-  command = sh -c 'case $$(uname -m) in x86_64) T=x86_64-unknown-linux-musl;; aarch64) T=aarch64-unknown-linux-musl;; *) echo "unsupported: $$(uname -m)"; exit 1;; esac; CARGO_TARGET_DIR=$$(pwd)/builddir/cargo cargo build --target $$T --release --locked --manifest-path $$(pwd)/Cargo.toml'
-  description = cargo build cesar
-
-rule copy
-  command = cp $in $out
-  description = copy $out
+  command = sh -c 'case $$(uname -m) in x86_64) T=x86_64-unknown-linux-musl;; aarch64) T=aarch64-unknown-linux-musl;; *) echo "unsupported: $$(uname -m)" >&2; exit 1;; esac; CARGO_TARGET_DIR=$$(pwd)/builddir/cargo cargo build --target $$T --release --locked --manifest-path $$(pwd)/Cargo.toml && cp $$(pwd)/builddir/cargo/$$T/release/csr "$out1" && cp $$(pwd)/builddir/cargo/$$T/release/csl "$out2"'
+  description = cargo build csr csl
 
 rule install
-  command = install -Dm755 $in $out
-  description = install $out
+  command = install -Dm755 $in $${DESTDIR}/system/bin/$name
+  description = install $name
 
-srcdir = .
 builddir = builddir
-PREFIX ?= /system/bin
-DESTDIR ?=
 
-build $builddir/csr: cargo
-build $builddir/csl.bin: copy $builddir/csl
+build $builddir/csr $builddir/csl: cargo
+  out1 = $builddir/csr
+  out2 = $builddir/csl
 
-default $builddir/csr $builddir/csl.bin
+default $builddir/csr $builddir/csl
 
-build $DESTDIR$(PREFIX)/csr: install $builddir/csr
-build $DESTDIR$(PREFIX)/csl: install $builddir/csl.bin
+build install: phony install-csr install-csl
+build install-csr: install $builddir/csr
+  name = csr
+build install-csl: install $builddir/csl
+  name = csl

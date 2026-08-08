@@ -1,0 +1,122 @@
+.\" Cesar Init System — Man Page
+.TH CSR 1 "2026-08-02" "csr 0.0.7" "System Administration"
+.SH NAME
+csr \- Cesar Init System: Sovereign PID 1 for Cudane
+.SH SYNOPSIS
+.B csr
+.RI [ command ]
+.SH DESCRIPTION
+.B csr
+is the init system for the Cudane distribution. It manages services via an
+asynchronous DAG engine, handles socket activation, and provides a unified
+Markdown logging system.
+.br
+With no command, it launches the service supervisor. Commands are grouped:
+.SH COMMAND GROUPS
+.TP
+.B service, svc
+Manage services: start (up), stop (dn), restart (rs), reload (rl), kill,
+enable, disable, status, list (ls), inspect, log, cat, edit, diff, validate,
+create, rm, monitor, watch, and dependency tree (dep).
+.TP
+.B system, sys
+System-level control (boot, shutdown, and related operations).
+.TP
+.B config, cfg
+Read and write Cesar configuration.
+.TP
+.B log, logs
+Query the unified Markdown log store.
+.TP
+.B socket, sock
+Manage socket-activated endpoints.
+.TP
+.B daemon, dmon
+Daemon lifecycle control.
+.TP
+.B snapshot, snap
+Create and manage service snapshots.
+.TP
+.B security, sec
+Security-related settings.
+.TP
+.B query, qry
+Query service and system state.
+.TP
+.B debug, dbg
+Diagnostic and debugging commands.
+.TP
+.B self, me
+Self-inspection of the running supervisor.
+.TP
+.B plugin, plug
+Manage cps plugins.
+.TP
+.B theme, thm
+Manage cps themes.
+.TP
+.B tui
+Manage cps TUIs.
+.SH SERVICE SUBCOMMANDS
+.TP
+.B csr service start \fI-n NAME\fR [\fI-w\fR] [\fI-t TIMEOUT\fR]
+Start a service and its dependencies; optionally wait for readiness.
+.TP
+.B csr service stop \fI-n NAME\fR [\fI-f\fR] [\fI-t TIMEOUT\fR]
+Stop a service (force with \fB-f\fR).
+.TP
+.B csr service restart \fI-n NAME\fR [\fI-f\fR] [\fI-t TIMEOUT\fR]
+Restart a service.
+.TP
+.B csr service reload \fI-n NAME\fR [\fI-s SIGNAL\fR]
+Send a reload signal (default SIGHUP).
+.TP
+.B csr service kill \fI-n NAME\fR [\fI-s SIGNAL\fR]
+Send an arbitrary signal.
+.TP
+.B csr service enable \fI-n NAME\fR [\fI-b\fR] [\fI-W\fR]
+Enable at boot (optionally start now).
+.TP
+.B csr service disable \fI-n NAME\fR [\fI-W\fR]
+Disable at boot (optionally stop now).
+.TP
+.B csr service status \fI-n NAME\fR [\fI-j\fR] [\fI-q\fR]
+Show state (JSON or quiet).
+.TP
+.B csr service list [\fI-a\fR] [\fI-f\fR] [\fI-r\fR] [\fI-s KEY\fR] [\fI-j\fR] [\fI-m\fR]
+List services, optionally filtered by all/failed/running.
+.TP
+.B csr service inspect \fI-n NAME\fR [\fI-r\fR] [\fI-d\fR] [\fI-p\fR] [\fI-j\fR]
+Inspect a service definition (raw config, deps, pid).
+.TP
+.B csr service log \fI-n NAME\fR [\fI-f\fR] [\fI-l LINES\fR] [\fI-L LEVEL\fR] [\fI-g PATTERN\fR] [\fI-S SINCE\fR]
+Follow or slice a service's Markdown log.
+.TP
+.B csr service create \fI-n NAME\fR \fI-e CMD\fR [\fI-r REQ\fR] [\fI-R POLICY\fR] [\fI-s SOCKET\fR] [\fI-d DESC\fR]
+Create a service unit.
+.TP
+.B csr service rm \fI-n NAME\fR [\fI-f\fR] [\fI-p\fR]
+Remove a service (purge for its log too).
+.TP
+.B csr service monitor \fI-n NAME\fR [\fI-i MS\fR] [\fI-t THRESHOLD\fR]
+Poll state every \fI-i\fR ms, alert after \fI-t\fR failures.
+.TP
+.B csr service watch [\fI-n NAME\fR] [\fI-e EVENTS\fR]
+Watch service events.
+.TP
+.B csr service tree [\fI-a\fR] [\fI-f\fR] [\fI-g\fR]
+Print the dependency graph (flat, or graphviz).
+.SH FILES
+.TP
+.I /etc/cesar/*.toml
+Service unit definitions.
+.TP
+.I /run/cesar
+Runtime state and sockets.
+.SH SEE ALSO
+.BR csl (1),
+.BR cps (1)
+.SH AUTHOR
+Mapuse
+.SH LICENSE
+MIT

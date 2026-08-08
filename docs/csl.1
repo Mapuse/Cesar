@@ -1,0 +1,56 @@
+.\" Cesar Log Viewer — Man Page
+.TH CSL 1 "2026-08-02" "csl 0.0.7" "User Commands"
+.SH NAME
+csl \- Cesar service log viewer
+.SH SYNOPSIS
+.B csl
+.RI [ options ]
+.SH DESCRIPTION
+.B csl
+reads and renders the unified Markdown logs produced by the Cesar init system.
+By default it shows the tail of all service logs; filters narrow it to a single
+service, error level, or pattern. Without a matching service the program
+reports that no logs were found.
+.SH OPTIONS
+.TP
+.B \-s, \-\-service \fINAME\fR
+Restrict output to one service.
+.TP
+.B \-e, \-\-errors-only
+Show only error-level entries.
+.TP
+.B \-f, \-\-follow
+Tail the logs and keep reading as new entries arrive.
+.TP
+.B \-n, \-\-lines \fIN\fR
+Number of lines to show (default 50).
+.TP
+.B \-g, \-\-grep \fIPATTERN\fR
+Filter entries matching the pattern.
+.TP
+.B \-t, \-\-tree
+Render entries as a tree grouped by service.
+.TP
+.B \-T, \-\-tail
+Show only the tail of each service's log.
+.TP
+.B \-c, \-\-clear
+Clear the log store.
+.TP
+.B \-S, \-\-stats
+Show per-service statistics instead of raw entries.
+.TP
+.B \-m, \-\-summary
+Print a summary of the log store.
+.TP
+.B \-j, \-\-json
+Emit machine-readable JSON.
+.TP
+.B \-h, \-\-help
+Show help.
+.SH SEE ALSO
+.BR csr (1)
+.SH AUTHOR
+Mapuse
+.SH LICENSE
+MIT

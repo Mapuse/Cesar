@@ -2682,6 +2682,7 @@ make install DESTDIR=/mnt     # staged install
 ### Meson
 
 ```shell
+./gen-cross.sh                              # generate cross file for host arch
 meson setup builddir --cross-file cross.txt --prefix=/system
 meson compile -C builddir
 meson install -C builddir
@@ -2691,7 +2692,7 @@ meson install -C builddir
 
 ```shell
 ninja -f build.ninja                       # build
-ninja -f build.ninja install DESTDIR=/mnt  # staged install
+DESTDIR=/mnt ninja -f build.ninja install  # staged install
 ```
 
 ### CMake

@@ -2099,7 +2099,7 @@ fn handle_service(cmd: ServiceCommand, dag: &mut DagEngine, logger: &CesarLogger
 fn handle_plugin(cmd: PluginCommand) {
     match cmd {
         PluginCommand::List => {
-            let plugins = crate::python::plugin::PluginManager::list();
+            let plugins = cps::plugin::PluginManager::list();
             if plugins.is_empty() {
                 println!("No plugins installed.");
                 println!("  Install: csr plugin install <path>");
@@ -2118,14 +2118,14 @@ fn handle_plugin(cmd: PluginCommand) {
             }
         }
         PluginCommand::Run(args) => {
-            let (entry, func) = match crate::python::plugin::PluginManager::by_alias(&args.alias) {
+            let (entry, func) = match cps::plugin::PluginManager::by_alias(&args.alias) {
                 Some(found) => found,
                 None => {
                     eprintln!("\x1b[31m✗\x1b[0m No plugin alias '{}' found", args.alias);
                     return;
                 }
             };
-            match crate::python::plugin::PluginManager::run(&entry, &func, &args.args) {
+            match cps::plugin::PluginManager::run(&entry, &func, &args.args) {
                 Ok(output) => println!("{}", output),
                 Err(e) => eprintln!("\x1b[31m✗\x1b[0m Plugin '{}' failed: {}", entry.name, e),
             }
@@ -2167,7 +2167,7 @@ fn handle_plugin(cmd: PluginCommand) {
                 aliases.insert(alias.clone(), format!("{} {{}}", dest.display()));
             }
 
-            crate::python::plugin::PluginManager::register(&name, &dest, &aliases);
+            cps::plugin::PluginManager::register(&name, &dest, &aliases);
 
             println!("\x1b[32m✓\x1b[0m Plugin '{}' installed", name);
             println!("  Path: {}", dest.display());
@@ -2179,7 +2179,7 @@ fn handle_plugin(cmd: PluginCommand) {
             }
         }
         PluginCommand::Remove(args) => {
-            let plugins = crate::python::plugin::PluginManager::list();
+            let plugins = cps::plugin::PluginManager::list();
             let entry = match plugins.iter().find(|p| p.name == args.name) {
                 Some(e) => e,
                 None => {
@@ -2190,11 +2190,11 @@ fn handle_plugin(cmd: PluginCommand) {
             if let Err(e) = fs::remove_file(&entry.path) {
                 eprintln!("\x1b[33m⚠\x1b[0m Could not remove file: {}", e);
             }
-            crate::python::plugin::PluginManager::unregister(&args.name);
+            cps::plugin::PluginManager::unregister(&args.name);
             println!("\x1b[32m✓\x1b[0m Plugin '{}' removed", args.name);
         }
         PluginCommand::Info(args) => {
-            match crate::python::plugin::PluginManager::by_name(&args.name) {
+            match cps::plugin::PluginManager::by_name(&args.name) {
                 Some(p) => {
                     println!("\x1b[32m{}\x1b[0m", p.name);
                     println!("  Path:    {}", p.path);
@@ -2221,7 +2221,7 @@ fn handle_plugin(cmd: PluginCommand) {
 fn handle_theme(cmd: ThemeCommand) {
     match cmd {
         ThemeCommand::List => {
-            let themes = crate::python::theme::ThemeEngine::list();
+            let themes = cps::theme::ThemeEngine::list();
             if themes.is_empty() {
                 println!("No themes installed.");
                 println!("  Install: csr theme install <path>");
@@ -2237,14 +2237,14 @@ fn handle_theme(cmd: ThemeCommand) {
             }
         }
         ThemeCommand::Apply(args) => {
-            let theme = match crate::python::theme::ThemeEngine::by_name(&args.name) {
+            let theme = match cps::theme::ThemeEngine::by_name(&args.name) {
                 Some(t) => t,
                 None => {
                     eprintln!("\x1b[31m✗\x1b[0m Theme '{}' not found", args.name);
                     return;
                 }
             };
-            match crate::python::theme::ThemeEngine::apply(&theme) {
+            match cps::theme::ThemeEngine::apply(&theme) {
                 Ok(output) => println!("{}", output),
                 Err(e) => eprintln!("\x1b[31m✗\x1b[0m Theme '{}' failed: {}", theme.name, e),
             }
@@ -2281,13 +2281,13 @@ fn handle_theme(cmd: ThemeCommand) {
                 return;
             }
 
-            crate::python::theme::ThemeEngine::register(&name, &dest);
+            cps::theme::ThemeEngine::register(&name, &dest);
 
             println!("\x1b[32m✓\x1b[0m Theme '{}' installed", name);
             println!("  Path: {}", dest.display());
         }
         ThemeCommand::Remove(args) => {
-            let themes = crate::python::theme::ThemeEngine::list();
+            let themes = cps::theme::ThemeEngine::list();
             let entry = match themes.iter().find(|t| t.name == args.name) {
                 Some(e) => e,
                 None => {
@@ -2298,11 +2298,11 @@ fn handle_theme(cmd: ThemeCommand) {
             if let Err(e) = fs::remove_file(&entry.path) {
                 eprintln!("\x1b[33m⚠\x1b[0m Could not remove file: {}", e);
             }
-            crate::python::theme::ThemeEngine::unregister(&args.name);
+            cps::theme::ThemeEngine::unregister(&args.name);
             println!("\x1b[32m✓\x1b[0m Theme '{}' removed", args.name);
         }
         ThemeCommand::Info(args) => {
-            match crate::python::theme::ThemeEngine::by_name(&args.name) {
+            match cps::theme::ThemeEngine::by_name(&args.name) {
                 Some(t) => {
                     println!("\x1b[32m{}\x1b[0m", t.name);
                     println!("  Path: {}", t.path);
@@ -2326,7 +2326,7 @@ fn handle_theme(cmd: ThemeCommand) {
 fn handle_tui(cmd: TuiCommand) {
     match cmd {
         TuiCommand::List => {
-            let tuis = crate::python::tui::TuiEngine::list();
+            let tuis = cps::tui::TuiEngine::list();
             if tuis.is_empty() {
                 println!("No TUIs installed.");
                 println!("  Install: csr tui install <path>");
@@ -2342,14 +2342,14 @@ fn handle_tui(cmd: TuiCommand) {
             }
         }
         TuiCommand::Apply(args) => {
-            let tui = match crate::python::tui::TuiEngine::by_name(&args.name) {
+            let tui = match cps::tui::TuiEngine::by_name(&args.name) {
                 Some(t) => t,
                 None => {
                     eprintln!("\x1b[31m✗\x1b[0m TUI '{}' not found", args.name);
                     return;
                 }
             };
-            match crate::python::tui::TuiEngine::apply(&tui) {
+            match cps::tui::TuiEngine::apply(&tui) {
                 Ok(output) => println!("{}", output),
                 Err(e) => eprintln!("\x1b[31m✗\x1b[0m TUI '{}' failed: {}", tui.name, e),
             }
@@ -2386,13 +2386,13 @@ fn handle_tui(cmd: TuiCommand) {
                 return;
             }
 
-            crate::python::tui::TuiEngine::register(&name, &dest);
+            cps::tui::TuiEngine::register(&name, &dest);
 
             println!("\x1b[32m✓\x1b[0m TUI '{}' installed", name);
             println!("  Path: {}", dest.display());
         }
         TuiCommand::Remove(args) => {
-            let tuis = crate::python::tui::TuiEngine::list();
+            let tuis = cps::tui::TuiEngine::list();
             let entry = match tuis.iter().find(|t| t.name == args.name) {
                 Some(e) => e,
                 None => {
@@ -2403,11 +2403,11 @@ fn handle_tui(cmd: TuiCommand) {
             if let Err(e) = fs::remove_file(&entry.path) {
                 eprintln!("\x1b[33m⚠\x1b[0m Could not remove file: {}", e);
             }
-            crate::python::tui::TuiEngine::unregister(&args.name);
+            cps::tui::TuiEngine::unregister(&args.name);
             println!("\x1b[32m✓\x1b[0m TUI '{}' removed", args.name);
         }
         TuiCommand::Info(args) => {
-            match crate::python::tui::TuiEngine::by_name(&args.name) {
+            match cps::tui::TuiEngine::by_name(&args.name) {
                 Some(t) => {
                     println!("\x1b[32m{}\x1b[0m", t.name);
                     println!("  Path: {}", t.path);

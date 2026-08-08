@@ -6,7 +6,6 @@ pub mod event;
 pub mod health;
 pub mod logger;
 pub mod process;
-pub mod python;
 pub mod service;
 pub mod settings;
 pub mod socket;

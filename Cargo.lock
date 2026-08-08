@@ -101,10 +101,10 @@ version = "0.0.7"
 dependencies = [
  "chrono",
  "clap",
+ "cps",
  "hostname",
  "libc",
  "nix",
- "pyo3",
  "serde",
  "serde_json",
  "tokio",
@@ -188,6 +188,17 @@ name = "core-foundation-sys"
 version = "0.8.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "773648b94d0e5d620f64f280777445740e61fe701025087ec8b57f45c791888b"
+
+[[package]]
+name = "cps"
+version = "0.7.0"
+source = "git+https://github.com/Mapuse/CPS?rev=d8d5f7da49917ea7636147b8a65f3541311c45ab#d8d5f7da49917ea7636147b8a65f3541311c45ab"
+dependencies = [
+ "clap",
+ "pyo3",
+ "serde",
+ "toml",
+]
 
 [[package]]
 name = "equivalent"

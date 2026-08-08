@@ -440,6 +440,8 @@ fn reload_services() {
 
 #[tokio::main(flavor = "current_thread")]
 async fn main() {
+    cps::configure(cps::Options::new("cesar"));
+
     let is_init = unsafe { libc::getpid() == 1 };
 
     if is_init {
