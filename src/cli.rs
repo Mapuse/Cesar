@@ -134,6 +134,10 @@ pub enum ServiceCommand {
     Create(ServiceCreateArgs),
 
 
+    #[command(alias("conv"))]
+    Convert(ServiceConvertArgs),
+
+
     Rm(ServiceRemoveArgs),
 
 
@@ -153,6 +157,8 @@ pub struct ServiceNameArgs {
     #[arg(short = 'n', long = "name")]
     pub name: String,
 
+    #[arg(short = 'f', long = "force")]
+    pub force: bool,
 
     #[arg(short = 'w', long = "wait")]
     pub wait: bool,
@@ -370,6 +376,27 @@ pub struct ServiceCreateArgs {
 
     #[arg(short = 'd', long = "description")]
     pub description: Option<String>,
+}
+
+#[derive(Args)]
+pub struct ServiceConvertArgs {
+
+    #[arg(short = 's', long = "source", default_value = "/etc/systemd/system")]
+    pub source: String,
+
+
+    #[arg(short = 'd', long = "dest", default_value = "/etc/cesar/services")]
+    pub dest: String,
+
+
+    #[arg(short = 'f', long = "force")]
+    pub force: bool,
+
+
+    /// Explicitly remove the source directory after a successful conversion.
+    /// Never the default: deleting units is destructive.
+    #[arg(long = "remove-source")]
+    pub remove_source: bool,
 }
 
 #[derive(Args)]

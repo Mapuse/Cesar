@@ -1,5 +1,3 @@
-use std::sync::OnceLock;
-
 use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::io;
@@ -10,206 +8,6 @@ use crate::service::{RestartPolicy, ServiceConfig};
 const SYSTEM_SERVICE_DIR: &str = "/system/lib/cesar/services";
 const USER_SERVICE_DIR: &str = "/etc/cesar/services";
 const ENABLED_SERVICE_DIR: &str = "/etc/cesar/enabled";
-const CESAR_CONFIG_PATH: &str = "/etc/cesar/cesar.ini";
-
-// ─── Cesar Config ───────────────────────────────────────────────────────────
-
-static CESAR_CONFIG: OnceLock<CesarConfig> = OnceLock::new();
-
-#[derive(Debug, Clone)]
-pub struct CesarConfig {
-    pub level: String,
-    pub log_file: String,
-    pub plugin_enabled: bool,
-    pub plugin_timeout: u64,
-    pub event_socket: String,
-    pub tui_enabled: bool,
-    pub theme: String,
-    pub default_tui: String,
-    pub interval: u64,
-    pub scrollback: u64,
-    pub enable_mouse: bool,
-    pub enable_ansi: bool,
-    pub color_depth: String,
-    pub status_bar: bool,
-    pub keybindings: String,
-    pub border_style: String,
-    pub show_help: bool,
-    pub show_status: bool,
-    pub show_uptime: bool,
-    pub show_services: bool,
-    pub show_resources: bool,
-    pub show_logs: bool,
-    pub compact: bool,
-    pub vim: bool,
-    pub notifications: bool,
-    pub notification_timeout: u64,
-    pub animation: bool,
-    pub animation_speed: String,
-    pub font_size: u32,
-    pub line_height: f64,
-    pub letter_spacing: f64,
-    pub padding: u32,
-    pub margin: u32,
-    pub scroll_offset: u64,
-    pub wrap: bool,
-    pub tab_width: u32,
-    pub cursor_style: String,
-    pub cursor_blink: bool,
-    pub selection_clipboard: bool,
-    pub link_underline: String,
-    pub search_case_sensitive: bool,
-    pub search_regex: bool,
-    pub search_highlight_color: String,
-    pub bell: String,
-}
-
-impl Default for CesarConfig {
-    fn default() -> Self {
-        Self {
-            level: "info".into(),
-            log_file: "/var/log/cesar.md".into(),
-            plugin_enabled: true,
-            plugin_timeout: 30,
-            event_socket: "/run/cesar/event.sock".into(),
-            tui_enabled: true,
-            theme: "default".into(),
-            default_tui: "default".into(),
-            interval: 1000,
-            scrollback: 5000,
-            enable_mouse: true,
-            enable_ansi: true,
-            color_depth: "truecolor".into(),
-            status_bar: true,
-            keybindings: "default".into(),
-            border_style: "rounded".into(),
-            show_help: true,
-            show_status: true,
-            show_uptime: true,
-            show_services: true,
-            show_resources: true,
-            show_logs: true,
-            compact: false,
-            vim: false,
-            notifications: true,
-            notification_timeout: 5000,
-            animation: true,
-            animation_speed: "normal".into(),
-            font_size: 12,
-            line_height: 1.0,
-            letter_spacing: 0.0,
-            padding: 2,
-            margin: 1,
-            scroll_offset: 0,
-            wrap: true,
-            tab_width: 4,
-            cursor_style: "block".into(),
-            cursor_blink: true,
-            selection_clipboard: true,
-            link_underline: "hover".into(),
-            search_case_sensitive: false,
-            search_regex: false,
-            search_highlight_color: "yellow".into(),
-            bell: "visual".into(),
-        }
-    }
-}
-
-fn load_cesar_config() -> io::Result<CesarConfig> {
-    let path = Path::new(CESAR_CONFIG_PATH);
-    if !path.exists() {
-        return Ok(CesarConfig::default());
-    }
-    let content = fs::read_to_string(path)?;
-    Ok(parse_cesar_ini(&content))
-}
-
-fn parse_cesar_ini(content: &str) -> CesarConfig {
-    let mut cfg = CesarConfig::default();
-    let mut section = String::new();
-
-    for line in content.lines() {
-        let trimmed = line.trim();
-        if trimmed.is_empty() || trimmed.starts_with('#') || trimmed.starts_with(';') {
-            continue;
-        }
-        if trimmed.starts_with('[') && trimmed.ends_with(']') {
-            section = trimmed[1..trimmed.len()-1].to_lowercase();
-            continue;
-        }
-        if let Some((key, value)) = trimmed.split_once('=') {
-            let key = key.trim();
-            let value = value.trim();
-            match section.as_str() {
-                "cesar" => match key {
-                    "level" => cfg.level = value.into(),
-                    "log_file" => cfg.log_file = value.into(),
-                    _ => {}
-                },
-                "plugin" => match key {
-                    "enabled" => cfg.plugin_enabled = parse_bool(value),
-                    "timeout" => cfg.plugin_timeout = value.parse().unwrap_or(30),
-                    "event_socket" => cfg.event_socket = value.into(),
-                    _ => {}
-                },
-                "tui" => match key {
-                    "enabled" => cfg.tui_enabled = parse_bool(value),
-                    "theme" => cfg.theme = value.into(),
-                    "default_tui" => cfg.default_tui = value.into(),
-                    "interval" => cfg.interval = value.parse().unwrap_or(1000),
-                    "scrollback" => cfg.scrollback = value.parse().unwrap_or(5000),
-                    "enable_mouse" => cfg.enable_mouse = parse_bool(value),
-                    "enable_ansi" => cfg.enable_ansi = parse_bool(value),
-                    "color_depth" => cfg.color_depth = value.into(),
-                    "status_bar" => cfg.status_bar = parse_bool(value),
-                    "keybindings" => cfg.keybindings = value.into(),
-                    "border_style" => cfg.border_style = value.into(),
-                    "show_help" => cfg.show_help = parse_bool(value),
-                    "show_status" => cfg.show_status = parse_bool(value),
-                    "show_uptime" => cfg.show_uptime = parse_bool(value),
-                    "show_services" => cfg.show_services = parse_bool(value),
-                    "show_resources" => cfg.show_resources = parse_bool(value),
-                    "show_logs" => cfg.show_logs = parse_bool(value),
-                    "compact" => cfg.compact = parse_bool(value),
-                    "vim" => cfg.vim = parse_bool(value),
-                    "notifications" => cfg.notifications = parse_bool(value),
-                    "notification_timeout" => cfg.notification_timeout = value.parse().unwrap_or(5000),
-                    "animation" => cfg.animation = parse_bool(value),
-                    "animation_speed" => cfg.animation_speed = value.into(),
-                    "font_size" => cfg.font_size = value.parse().unwrap_or(12),
-                    "line_height" => cfg.line_height = value.parse().unwrap_or(1.0),
-                    "letter_spacing" => cfg.letter_spacing = value.parse().unwrap_or(0.0),
-                    "padding" => cfg.padding = value.parse().unwrap_or(2),
-                    "margin" => cfg.margin = value.parse().unwrap_or(1),
-                    "scroll_offset" => cfg.scroll_offset = value.parse().unwrap_or(0),
-                    "wrap" => cfg.wrap = parse_bool(value),
-                    "tab_width" => cfg.tab_width = value.parse().unwrap_or(4),
-                    "cursor_style" => cfg.cursor_style = value.into(),
-                    "cursor_blink" => cfg.cursor_blink = parse_bool(value),
-                    "selection_clipboard" => cfg.selection_clipboard = parse_bool(value),
-                    "link_underline" => cfg.link_underline = value.into(),
-                    "search_case_sensitive" => cfg.search_case_sensitive = parse_bool(value),
-                    "search_regex" => cfg.search_regex = parse_bool(value),
-                    "search_highlight_color" => cfg.search_highlight_color = value.into(),
-                    "bell" => cfg.bell = value.into(),
-                    _ => {}
-                },
-                _ => {}
-            }
-        }
-    }
-    cfg
-}
-
-fn parse_bool(s: &str) -> bool {
-    matches!(s.trim().to_lowercase().as_str(), "true" | "yes" | "1" | "on")
-}
-
-pub fn get_config() -> &'static CesarConfig {
-    CESAR_CONFIG.get_or_init(|| {
-        load_cesar_config().unwrap_or_default()
-    })
-}
 
 pub fn parse_cesar_config(file_path: &str) -> io::Result<ServiceConfig> {
     let path = Path::new(file_path);
@@ -230,13 +28,13 @@ fn parse_config_content(content: &str, source: &str) -> io::Result<ServiceConfig
     for line in content.lines() {
         let trimmed = line.trim();
 
-        if trimmed.is_empty() || trimmed.starts_with('#') || trimmed.starts_with('[') {
+        if trimmed.is_empty() || trimmed.starts_with('#') || trimmed.starts_with(';') || trimmed.starts_with('[') {
             continue;
         }
 
         if let Some((key, value)) = trimmed.split_once('=') {
             let key = key.trim();
-            let value = value.trim();
+            let value = unquote(value.trim());
 
             match key {
                 "Name" => name = value.to_string(),
@@ -264,12 +62,20 @@ fn parse_config_content(content: &str, source: &str) -> io::Result<ServiceConfig
                 }
             }
         }
+        // Malformed lines without '=' are ignored; section headers and
+        // comments carry no keys.
     }
 
     if name.is_empty() || exec.is_empty() {
         return Err(io::Error::new(
             io::ErrorKind::InvalidData,
             format!("Missing required Name or Exec in {}", source),
+        ));
+    }
+    if let Err(problem) = validate_service_name(&name) {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            format!("Invalid Name '{}' in {}: {}", name, source, problem),
         ));
     }
 
@@ -283,6 +89,39 @@ fn parse_config_content(content: &str, source: &str) -> io::Result<ServiceConfig
         environment,
         working_directory,
     })
+}
+
+/// Strip one layer of matching single or double quotes from a config value.
+fn unquote(value: &str) -> &str {
+    let bytes = value.as_bytes();
+    if bytes.len() >= 2
+        && ((bytes[0] == b'"' && bytes[bytes.len() - 1] == b'"')
+            || (bytes[0] == b'\'' && bytes[bytes.len() - 1] == b'\''))
+    {
+        &value[1..value.len() - 1]
+    } else {
+        value
+    }
+}
+
+/// Service names become file names, log sections and socket paths: keep
+/// them to shell-safe characters. Returns the first problem found.
+pub fn validate_service_name(name: &str) -> Result<(), String> {
+    if name.is_empty() {
+        return Err("name is empty".to_string());
+    }
+    for c in name.chars() {
+        if c.is_whitespace() {
+            return Err(format!("whitespace character {:?} not allowed", c));
+        }
+        if c.is_control() {
+            return Err(format!("control character {:?} not allowed", c));
+        }
+        if matches!(c, '/' | '\\' | '\0' | '$' | '`' | ';' | '&' | '|' | '>' | '<') {
+            return Err(format!("character {:?} not allowed", c));
+        }
+    }
+    Ok(())
 }
 
 pub fn load_all_services() -> Vec<ServiceConfig> {
@@ -333,7 +172,11 @@ pub fn load_all_services() -> Vec<ServiceConfig> {
                     file_name.strip_suffix(".ini").map(|s| s.to_string())
                 })
                 .collect()
-        });
+        })
+        // An existing-but-empty enabled directory carries no allowlist:
+        // treat it as absent so every discovered service still loads.
+        // (Creating the directory must never silently disable all boot services.)
+        .filter(|set: &HashSet<String>| !set.is_empty());
 
     order
         .into_iter()
@@ -343,4 +186,98 @@ pub fn load_all_services() -> Vec<ServiceConfig> {
         })
         .filter_map(|k| services_by_name.remove(&k))
         .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn parse(content: &str) -> io::Result<ServiceConfig> {
+        parse_config_content(content, "test.ini")
+    }
+
+    #[test]
+    fn parses_basic_service() {
+        let cfg = parse("[Service]\nName = web\nExec = /usr/bin/nginx\n").expect("parses");
+        assert_eq!(cfg.name, "web");
+        assert_eq!(cfg.exec, "/usr/bin/nginx");
+        assert_eq!(cfg.restart, RestartPolicy::Never);
+        assert!(cfg.requires.is_empty());
+    }
+
+    #[test]
+    fn comments_and_sections_are_skipped() {
+        let content = "\
+# leading comment
+[Service]
+; ini-style comment too
+Name = svc
+Exec = /bin/true
+[Unit]
+NotAKeyWeKnow = whatever
+";
+        let cfg = parse(content).expect("parses");
+        assert_eq!(cfg.name, "svc");
+    }
+
+    #[test]
+    fn quoted_values_are_unquoted_once() {
+        let cfg = parse("Name = \"web\"\nExec = '/usr/bin/ng inx'\n").expect("parses");
+        assert_eq!(cfg.name, "web");
+        assert_eq!(cfg.exec, "/usr/bin/ng inx");
+    }
+
+    #[test]
+    fn malformed_lines_without_equals_are_ignored() {
+        let cfg = parse("Name = svc\nExec = /bin/true\nthis line is broken\n").expect("parses");
+        assert_eq!(cfg.name, "svc");
+    }
+
+    #[test]
+    fn missing_name_or_exec_is_rejected() {
+        assert!(parse("Name = only-name\n").is_err());
+        assert!(parse("Exec = /bin/true\n").is_err());
+        assert!(parse("").is_err());
+    }
+
+    #[test]
+    fn requires_list_splits_on_commas() {
+        let cfg = parse("Name = app\nExec = x\nRequires = db, cache ,, net\n").expect("parses");
+        assert_eq!(cfg.requires, vec!["db", "cache", "net"]);
+    }
+
+    #[test]
+    fn environment_pairs_are_keyed() {
+        let cfg = parse("Name = e\nExec = x\nEnvironment = A=1 B=two\n").expect("parses");
+        assert_eq!(
+            cfg.environment,
+            vec![
+                ("A".to_string(), "1".to_string()),
+                ("B".to_string(), "two".to_string()),
+            ]
+        );
+    }
+
+    #[test]
+    fn service_names_with_whitespace_or_control_chars_rejected() {
+        assert!(validate_service_name("my service").is_err());
+        assert!(validate_service_name("svc\ttab").is_err());
+        assert!(validate_service_name("bad\nname").is_err());
+        assert!(validate_service_name("a/b").is_err());
+        assert!(validate_service_name("sub;shell").is_err());
+        assert!(validate_service_name("").is_err());
+        assert!(validate_service_name("ok.name-1_2").is_ok());
+        let parsed = parse("Name = bad name\nExec = x\n");
+        assert!(parsed.is_err(), "parser must enforce the same rule");
+    }
+
+    #[test]
+    fn working_directory_and_socket_captured() {
+        let cfg = parse(
+            "Name = s\nExec = x\nWorkingDirectory = /srv\nSocket = unix:/run/s.sock\n",
+        )
+        .expect("parses");
+        assert_eq!(cfg.working_directory.as_deref(), Some("/srv"));
+        assert_eq!(cfg.socket.as_deref(), Some("unix:/run/s.sock"));
+    }
 }

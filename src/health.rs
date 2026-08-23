@@ -44,9 +44,7 @@ impl HealthReport {
             .unwrap_or(0.0);
 
 
-        let hostname = hostname::get()
-            .map(|h| h.to_string_lossy().to_string())
-            .unwrap_or_else(|_| "unknown".to_string());
+        let hostname = crate::hostname();
 
 
         let proc_ok = Path::new("/proc/uptime").exists();
@@ -103,8 +101,8 @@ impl HealthReport {
         }
         if user_ok && !enabled_ok {
             warnings.push(HealthIssue {
-                context: format!("{} does not exist", enabled_dir),
-                fix: format!("mkdir -p {}", enabled_dir),
+                context: format!("{} does not exist (optional: only services linked there are enabled)", enabled_dir),
+                fix: format!("mkdir -p {}  # then symlink services/*.ini to enable selective boot", enabled_dir),
             });
         }
 
@@ -157,10 +155,23 @@ impl HealthReport {
 
 
         if let Ok(proc_dir) = fs::read_dir("/proc") {
+            let own_pid = unsafe { libc::getpid() };
             for entry in proc_dir.flatten() {
                 let name = entry.file_name();
                 if let Some(pid_str) = name.to_str()
                     && pid_str.chars().all(|c| c.is_ascii_digit()) {
+                        // Our own children are reaped by PID 1; a transient
+                        // zombie there is normal, not a system problem.
+                        let ppid = fs::read_to_string(format!("/proc/{}/stat", pid_str))
+                            .ok()
+                            .and_then(|stat| {
+                                stat.rsplit_once(')').and_then(|(_, rest)| {
+                                    rest.split_whitespace().nth(1)?.parse::<i64>().ok()
+                                })
+                            });
+                        if ppid == Some(own_pid as i64) {
+                            continue;
+                        }
                         let status_path = format!("/proc/{}/status", pid_str);
                         if let Ok(status) = fs::read_to_string(&status_path) {
                             for line in status.lines() {
@@ -186,7 +197,9 @@ impl HealthReport {
             let mut stat: libc::statvfs = std::mem::zeroed();
             if libc::statvfs(c"/".as_ptr().cast(), &mut stat) == 0 {
                 let total = stat.f_blocks * stat.f_frsize;
-                let avail = stat.f_bavail * stat.f_frsize;
+                // f_bfree (not f_bavail): init runs as root, so all free
+                // blocks are usable and "used" is measured against them.
+                let avail = stat.f_bfree * stat.f_frsize;
                 disk_used_pct = (total - avail).checked_mul(100).and_then(|v| v.checked_div(total)).unwrap_or(0);
                 disk_avail = format_bytes(avail);
             }

@@ -1,6 +1,6 @@
 project('cesar', 'rust',
   version : '0.0.7',
-  license : 'unlicense',
+  license : 'MIT',
   default_options : [
     'optimization=3',
     'strip=true',
@@ -39,6 +39,7 @@ custom_target('csl',
   build_always_stale : true,
   install : true,
   install_dir : get_option('prefix') / 'bin',
+  depends : ['csr'],
   command : ['sh', '-c',
     'cp {0}/{1}/release/csl @OUTPUT@'
     .format(build_dir, rust_target),

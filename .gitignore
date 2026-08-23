@@ -29,3 +29,7 @@ Thumbs.db
 
 # Repository
 __pycache__
+
+# Meson/Ninja build dir + generated cross file
+builddir/
+scripts/cross.txt

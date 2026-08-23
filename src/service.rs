@@ -23,7 +23,7 @@ impl fmt::Display for ServiceState {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum RestartPolicy {
     Never,
     OnFailure,
@@ -83,6 +83,9 @@ pub struct Service {
     pub state: ServiceState,
     pub pid: Option<u32>,
     pub restart_count: u32,
+    /// When the service last transitioned to Running; used to reset
+    /// the restart counter after it proves stable.
+    pub started_at: Option<std::time::Instant>,
 }
 
 impl Service {
@@ -92,6 +95,7 @@ impl Service {
             state: ServiceState::Stopped,
             pid: None,
             restart_count: 0,
+            started_at: None,
         }
     }
 

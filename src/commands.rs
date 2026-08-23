@@ -155,20 +155,38 @@ fn handle_system(cmd: SystemCommand, dag: &mut DagEngine, logger: &CesarLogger) 
                 }
                 println!("Services stopped.");
             }
+            // Reached only when no live daemon socket exists; the live path
+            // is handled by forwarding to PID 1 in main.rs.
             unsafe { libc::sync(); }
-            unsafe { libc::reboot(if args.reboot { libc::RB_AUTOBOOT } else { libc::RB_POWER_OFF }); }
+            let ret = unsafe {
+                libc::reboot(if args.reboot { libc::RB_AUTOBOOT } else { libc::RB_POWER_OFF })
+            };
+            if ret != 0 {
+                let err = std::io::Error::last_os_error();
+                if err.raw_os_error() == Some(libc::EPERM) {
+                    eprintln!("\x1b[31m✗\x1b[0m Shutdown requires root (run as root, or use the live init via its control socket)");
+                } else {
+                    eprintln!("\x1b[31m✗\x1b[0m Shutdown failed: {}", err);
+                }
+            }
         }
         SystemCommand::Reboot(_args) => {
             logger.log_info("reboot", "Reboot initiated");
             println!("\x1b[33m⚠\x1b[0m Rebooting...");
             unsafe { libc::sync(); }
-            unsafe { libc::reboot(libc::RB_AUTOBOOT); }
+            let ret = unsafe { libc::reboot(libc::RB_AUTOBOOT) };
+            if ret != 0 {
+                report_reboot_failure("Reboot", std::io::Error::last_os_error());
+            }
         }
         SystemCommand::Poweroff(_args) => {
             logger.log_info("poweroff", "Poweroff initiated");
             println!("\x1b[33m⚠\x1b[0m Powering off...");
             unsafe { libc::sync(); }
-            unsafe { libc::reboot(libc::RB_POWER_OFF); }
+            let ret = unsafe { libc::reboot(libc::RB_POWER_OFF) };
+            if ret != 0 {
+                report_reboot_failure("Poweroff", std::io::Error::last_os_error());
+            }
         }
         SystemCommand::Emergency(args) => {
             let reason = args.reason.unwrap_or_else(|| "unknown".to_string());
@@ -201,26 +219,17 @@ fn handle_system(cmd: SystemCommand, dag: &mut DagEngine, logger: &CesarLogger) 
             println!("\x1b[32m✓\x1b[0m System resumed from suspend");
             let _ = std::process::Command::new("plymouth").args(["hide-splash"]).output();
         }
-        SystemCommand::Freeze(_args) => {
-            let freezer = "/sys/fs/cgroup/freezer/freezer.state";
-            if Path::new(freezer).exists() {
-                match fs::write(freezer, "FROZEN") {
-                    Ok(()) => println!("\x1b[32m✓\x1b[0m Processes frozen"),
-                    Err(e) => eprintln!("\x1b[31m✗\x1b[0m Freeze failed: {}", e),
-                }
-            } else {
-                eprintln!("\x1b[31m✗\x1b[0m Cgroup freezer not found at {}", freezer);
+        SystemCommand::Freeze(args) => {
+            let _ = args;
+            match freeze_thaw_cgroup("FROZEN", "1") {
+                Ok(how) => println!("\x1b[32m✓\x1b[0m Processes frozen ({})", how),
+                Err(e) => eprintln!("\x1b[31m✗\x1b[0m Freeze failed: {}", e),
             }
         }
         SystemCommand::Thaw => {
-            let freezer = "/sys/fs/cgroup/freezer/freezer.state";
-            if Path::new(freezer).exists() {
-                match fs::write(freezer, "THAWED") {
-                    Ok(()) => println!("\x1b[32m✓\x1b[0m Processes thawed"),
-                    Err(e) => eprintln!("\x1b[31m✗\x1b[0m Thaw failed: {}", e),
-                }
-            } else {
-                eprintln!("\x1b[31m✗\x1b[0m Cgroup freezer not found");
+            match freeze_thaw_cgroup("THAWED", "0") {
+                Ok(how) => println!("\x1b[32m✓\x1b[0m Processes thawed ({})", how),
+                Err(e) => eprintln!("\x1b[31m✗\x1b[0m Thaw failed: {}", e),
             }
         }
         SystemCommand::Mount(args) => {
@@ -278,7 +287,7 @@ fn handle_system(cmd: SystemCommand, dag: &mut DagEngine, logger: &CesarLogger) 
                 if ret == 0 { println!("\x1b[32m✓\x1b[0m Hostname set to '{}'", h); }
                 else { eprintln!("\x1b[31m✗\x1b[0m Failed to set hostname: {}", std::io::Error::last_os_error()); }
             } else {
-                let hostname = hostname::get().map(|h| h.to_string_lossy().to_string()).unwrap_or_default();
+                let hostname = crate::hostname();
                 if args.short { println!("{}", hostname.split('.').next().unwrap_or(&hostname)); }
                 else { println!("{}", hostname); }
             }
@@ -407,9 +416,10 @@ fn handle_system(cmd: SystemCommand, dag: &mut DagEngine, logger: &CesarLogger) 
             }
         }
         SystemCommand::Cgroup(args) => {
+            let cg_root = "/sys/fs/cgroup";
+            let unified = Path::new(cg_root).join("cgroup.controllers").exists();
             if args.list {
-                let cgroup_root = "/sys/fs/cgroup";
-                match fs::read_dir(cgroup_root) {
+                match fs::read_dir(cg_root) {
                     Ok(entries) => {
                         for entry in entries.flatten() {
                             let name = entry.file_name().to_string_lossy().to_string();
@@ -420,6 +430,68 @@ fn handle_system(cmd: SystemCommand, dag: &mut DagEngine, logger: &CesarLogger) 
                     }
                     Err(e) => eprintln!("\x1b[31m✗\x1b[0m Cannot read /sys/fs/cgroup: {}", e),
                 }
+            }
+            if let Some(ref name) = args.create {
+                if !unified {
+                    eprintln!("\x1b[31m✗\x1b[0m cgroup v2 unified hierarchy not available");
+                } else {
+                    let dir = Path::new(cg_root).join(name);
+                    match fs::create_dir_all(&dir) {
+                        Ok(()) => println!("\x1b[32m✓\x1b[0m Created cgroup '{}'", name),
+                        Err(e) => eprintln!("\x1b[31m✗\x1b[0m Failed to create '{}': {}", name, e),
+                    }
+                }
+            }
+            if let Some(ref name) = args.destroy {
+                let dir = Path::new(cg_root).join(name);
+                let has_procs = fs::read_to_string(dir.join("cgroup.procs"))
+                    .map(|c| !c.trim().is_empty())
+                    .unwrap_or(false);
+                if has_procs {
+                    eprintln!("\x1b[31m✗\x1b[0m '{}' still contains processes; move or kill them first", name);
+                } else {
+                    match fs::remove_dir(&dir) {
+                        Ok(()) => println!("\x1b[32m✓\x1b[0m Destroyed cgroup '{}'", name),
+                        Err(e) => eprintln!("\x1b[31m✗\x1b[0m Failed to destroy '{}': {}", name, e),
+                    }
+                }
+            }
+            if let Some(ref spec) = args.attach {
+                // Format: -a "<cgroup-name>:<pid>"
+                match spec.split_once(':') {
+                    Some((name, pid)) if !name.is_empty() && pid.parse::<i64>().is_ok() => {
+                        let procs = Path::new(cg_root).join(name).join("cgroup.procs");
+                        match fs::write(procs, format!("{}\n", pid)) {
+                            Ok(()) => println!("\x1b[32m✓\x1b[0m Attached PID {} to '{}'", pid, name),
+                            Err(e) => eprintln!("\x1b[31m✗\x1b[0m Attach failed: {}", e),
+                        }
+                    }
+                    _ => eprintln!("\x1b[31m✗\x1b[0m Usage: --attach '<cgroup>:<pid>'"),
+                }
+            }
+            if let Some(ref name) = args.stats {
+                for stat_file in ["cgroup.stat", "memory.stat", "cpu.stat"] {
+                    let path = Path::new(cg_root).join(name).join(stat_file);
+                    if let Ok(content) = fs::read_to_string(&path) {
+                        println!("--- {} ---", stat_file);
+                        print!("{}", content);
+                    }
+                }
+            }
+            if let Some(ref name) = args.pids {
+                match fs::read_to_string(Path::new(cg_root).join(name).join("cgroup.procs")) {
+                    Ok(content) => {
+                        for line in content.lines() {
+                            println!("{}", line);
+                        }
+                    }
+                    Err(e) => eprintln!("\x1b[31m✗\x1b[0m {}: {}", name, e),
+                }
+            }
+            if !args.list && args.create.is_none() && args.destroy.is_none()
+                && args.attach.is_none() && args.stats.is_none() && args.pids.is_none()
+            {
+                println!("Usage: csr system cgroup [-l] [--create NAME] [--destroy NAME] --attach 'NAME:PID' [--stats NAME] [--pids NAME]");
             }
         }
         SystemCommand::Device(args) => {
@@ -432,6 +504,9 @@ fn handle_system(cmd: SystemCommand, dag: &mut DagEngine, logger: &CesarLogger) 
                     }
                     Err(e) => eprintln!("\x1b[31m✗\x1b[0m Cannot read /dev: {}", e),
                 }
+            }
+            if args.attach.is_some() || args.detach.is_some() || args.info.is_some() {
+                eprintln!("\x1b[33m⚠\x1b[0m device attach/detach/info are not implemented yet (device-manager integration pending)");
             }
         }
     }
@@ -471,27 +546,9 @@ fn handle_config(cmd: ConfigCommand, _logger: &CesarLogger) {
         ConfigCommand::Set(args) => {
             let config_path = "/etc/cesar/cesar.ini";
             fs::create_dir_all("/etc/cesar").ok();
-            let mut content = fs::read_to_string(config_path).unwrap_or_default();
-            let mut found = false;
-            let new_lines: Vec<String> = content.lines().map(|line| {
-                if let Some((key, _)) = line.trim().split_once('=') {
-                    if key.trim() == args.key { found = true; format!("{} = {}", args.key, args.value) }
-                    else { line.to_string() }
-                } else { line.to_string() }
-            }).collect();
-            if found {
-                content = new_lines.join("\n");
-                content.push('\n');
-            } else {
-                let section = format!("[cesar]\n{} = {}\n", args.key, args.value);
-                if content.is_empty() {
-                    content = section;
-                } else {
-                    content.push('\n');
-                    content.push_str(&section);
-                }
-            }
-            match fs::write(config_path, &content) {
+            let content = fs::read_to_string(config_path).unwrap_or_default();
+            let updated = upsert_ini_key(&content, "cesar", &args.key, &args.value);
+            match atomic_write(config_path, updated.as_bytes()) {
                 Ok(()) => println!("\x1b[32m✓\x1b[0m Set {} = {}", args.key, args.value),
                 Err(e) => eprintln!("\x1b[31m✗\x1b[0m Failed: {}", e),
             }
@@ -593,9 +650,48 @@ fn handle_config(cmd: ConfigCommand, _logger: &CesarLogger) {
         }
         ConfigCommand::Restore(args) => {
             if !args.force { eprintln!("\x1b[33m⚠\x1b[0m Use --force to confirm restore"); return; }
-            match process::Command::new("cp").args(["-a", &args.file, "/etc/cesar"]).status() {
-                Ok(s) if s.success() => println!("\x1b[32m✓\x1b[0m Restored from '{}'", args.file),
-                _ => eprintln!("\x1b[31m✗\x1b[0m Restore failed"),
+            let src = Path::new(&args.file);
+            if !src.exists() {
+                eprintln!("\x1b[31m✗\x1b[0m Restore source '{}' not found", args.file);
+                return;
+            }
+            // Replace /etc/cesar's contents instead of copying the backup
+            // INTO it: stage the new tree, swap by rename, then drop old.
+            let live = Path::new("/etc/cesar");
+            let stamp = chrono::Local::now().format("%Y%m%d%H%M%S");
+            if src.is_dir() {
+                let staging = Path::new("/etc").join(format!(".cesar.restore.{}", stamp));
+                let retired = Path::new("/etc").join(format!(".cesar.old.{}", stamp));
+                let _ = fs::remove_dir_all(&staging);
+                let _ = fs::remove_dir_all(&retired);
+                match process::Command::new("cp").args(["-a", &args.file, &staging.to_string_lossy()]).status() {
+                    Ok(s) if s.success() => {}
+                    _ => {
+                        eprintln!("\x1b[31m✗\x1b[0m Restore failed: cannot stage '{}'", args.file);
+                        return;
+                    }
+                }
+                if fs::rename(live, &retired).is_err() && live.exists() {
+                    eprintln!("\x1b[31m✗\x1b[0m Restore failed: cannot move current {} aside", live.display());
+                    let _ = fs::remove_dir_all(&staging);
+                    return;
+                }
+                if fs::rename(&staging, live).is_err() {
+                    eprintln!("\x1b[31m✗\x1b[0m Restore failed: cannot activate staged tree; restoring previous state");
+                    let _ = fs::rename(&retired, live);
+                    let _ = fs::remove_dir_all(&staging);
+                    return;
+                }
+                let _ = fs::remove_dir_all(&retired);
+                println!("\x1b[32m✓\x1b[0m Restored from '{}'", args.file);
+            } else {
+                match fs::read_to_string(src) {
+                    Ok(content) => match atomic_write("/etc/cesar/cesar.ini", content.as_bytes()) {
+                        Ok(()) => println!("\x1b[32m✓\x1b[0m Restored cesar.ini from '{}'", args.file),
+                        Err(e) => eprintln!("\x1b[31m✗\x1b[0m Restore failed: {}", e),
+                    },
+                    Err(e) => eprintln!("\x1b[31m✗\x1b[0m Cannot read {}: {}", args.file, e),
+                }
             }
         }
         ConfigCommand::Schema(_args) => {
@@ -625,7 +721,7 @@ fn handle_config(cmd: ConfigCommand, _logger: &CesarLogger) {
                                     let new_content = format!("{}{}", content.trim_end(), append);
                                     println!("  {} — adding Environment/WorkingDirectory", path.display());
                                     if !args.dry_run {
-                                        fs::write(&path, &new_content).ok();
+                                        let _ = atomic_write(&path.to_string_lossy(), new_content.as_bytes());
                                     }
                                     migrated += 1;
                                 }
@@ -636,6 +732,23 @@ fn handle_config(cmd: ConfigCommand, _logger: &CesarLogger) {
             else if args.dry_run { println!("\x1b[33m⚠\x1b[0m {} file(s) would be migrated (dry-run)", migrated); }
             else { println!("\x1b[32m✓\x1b[0m Migrated {} file(s)", migrated); }
         }
+    }
+}
+
+/// fsync a file's parent directory so a completed rename survives a crash.
+fn fsync_parent_dir(path: &str) {
+    if let Some(parent) = Path::new(path).parent()
+        && let Ok(dir) = fs::File::open(parent)
+    {
+        let _ = dir.sync_all();
+    }
+}
+
+fn report_reboot_failure(action: &str, err: std::io::Error) {
+    if err.raw_os_error() == Some(libc::EPERM) {
+        eprintln!("\x1b[31m✗\x1b[0m {} requires root (run as root, or use the live init via its control socket)", action);
+    } else {
+        eprintln!("\x1b[31m✗\x1b[0m {} failed: {}", action, err);
     }
 }
 
@@ -677,7 +790,11 @@ fn handle_log(cmd: LogCommand, logger: &CesarLogger) {
             let ts = chrono::Local::now().format("%Y%m%d_%H%M%S");
             let rotated = format!("{}.{}", log_path, ts);
             match fs::rename(log_path, &rotated) {
-                Ok(()) => { println!("\x1b[32m✓\x1b[0m Rotated to '{}'", rotated); logger.clear_log(); }
+                Ok(()) => {
+                    fsync_parent_dir(&rotated);
+                    println!("\x1b[32m✓\x1b[0m Rotated to '{}'", rotated);
+                    logger.clear_log();
+                }
                 Err(e) => eprintln!("\x1b[31m✗\x1b[0m Rotation failed: {}", e),
             }
             let _ = args;
@@ -705,8 +822,18 @@ fn handle_log(cmd: LogCommand, logger: &CesarLogger) {
             let mut last_len = fs::metadata(log_path).map(|m| m.len() as usize).unwrap_or(0);
             loop {
                 std::thread::sleep(std::time::Duration::from_secs(args.sleep));
-                if let Ok(new_content) = fs::read_to_string(log_path)
-                    && new_content.len() > last_len { print!("{}", &new_content[last_len..]); last_len = new_content.len(); std::io::stdout().flush().ok(); }
+                if let Ok(new_content) = fs::read_to_string(log_path) {
+                    // Rotation/truncation: restart from the top of the file.
+                    if new_content.len() < last_len {
+                        last_len = 0;
+                    }
+                    if new_content.len() > last_len {
+                        let (tail, end) = crate::logger::safe_tail(&new_content, last_len);
+                        print!("{}", tail);
+                        last_len = end;
+                        std::io::stdout().flush().ok();
+                    }
+                }
             }
         }
         LogCommand::Errors(_args) => {
@@ -790,7 +917,7 @@ fn handle_socket(cmd: SocketCommand, _logger: &CesarLogger) {
         }
         SocketCommand::Create(args) => {
             match crate::socket::create_unix_socket(&args.path) {
-                Ok(()) => println!("\x1b[32m✓\x1b[0m Socket created at '{}'", args.path),
+                Ok(fd) => println!("\x1b[32m✓\x1b[0m Socket created at '{}' (fd {})", args.path, fd),
                 Err(e) => eprintln!("\x1b[31m✗\x1b[0m {}", e),
             }
         }
@@ -818,20 +945,26 @@ fn handle_socket(cmd: SocketCommand, _logger: &CesarLogger) {
             let mut last_len = fs::metadata(log_path).map(|m| m.len() as usize).unwrap_or(0);
             loop {
                 std::thread::sleep(std::time::Duration::from_secs(1));
-                if let Ok(content) = fs::read_to_string(log_path)
-                    && content.len() > last_len {
-                        for line in content[last_len..].lines() {
+                if let Ok(content) = fs::read_to_string(log_path) {
+                    // Rotation/truncation: resync instead of going mute.
+                    if content.len() < last_len {
+                        last_len = 0;
+                    }
+                    if content.len() > last_len {
+                        let (tail, end) = crate::logger::safe_tail(&content, last_len);
+                        for line in tail.lines() {
                             if line.contains("socket") || line.contains(&args.path) { println!("{}", line.trim_start_matches('>').trim()); }
                         }
-                        last_len = content.len();
+                        last_len = end;
                     }
+                }
             }
         }
         SocketCommand::Activate(args) => {
             if Path::new(&args.path).exists() { println!("\x1b[32m✓\x1b[0m Socket '{}' already active", args.path); }
             else {
                 match crate::socket::create_unix_socket(&args.path) {
-                    Ok(()) => println!("\x1b[32m✓\x1b[0m Socket '{}' activated", args.path),
+                    Ok(_fd) => println!("\x1b[32m✓\x1b[0m Socket '{}' activated", args.path),
                     Err(e) => eprintln!("\x1b[31m✗\x1b[0m Failed: {}", e),
                 }
             }
@@ -980,7 +1113,7 @@ fn handle_daemon(cmd: DaemonCommand, dag: &mut DagEngine, logger: &CesarLogger) 
             let pin_path = format!("/etc/cesar/pinned/{}.version", args.name);
             fs::create_dir_all("/etc/cesar/pinned").ok();
             if let Some(ref version) = args.version {
-                fs::write(&pin_path, version).ok();
+                let _ = atomic_write(&pin_path, version.as_bytes());
                 println!("\x1b[32m✓\x1b[0m Daemon '{}' pinned to '{}'", args.name, version);
             } else if Path::new(&pin_path).exists() {
                 let v = fs::read_to_string(&pin_path).unwrap_or_default();
@@ -991,7 +1124,7 @@ fn handle_daemon(cmd: DaemonCommand, dag: &mut DagEngine, logger: &CesarLogger) 
             let trust_path = format!("/etc/cesar/trust/{}.key", args.name);
             fs::create_dir_all("/etc/cesar/trust").ok();
             if let Some(ref key) = args.key {
-                fs::write(&trust_path, key).ok();
+                let _ = atomic_write(&trust_path, key.as_bytes());
                 println!("\x1b[32m✓\x1b[0m Trust key set for '{}'", args.name);
             } else if args.verify {
                 if Path::new(&trust_path).exists() {
@@ -1012,14 +1145,23 @@ fn handle_snapshot(cmd: SnapshotCommand, dag: &mut DagEngine, _logger: &CesarLog
             let snap_path = format!("{}/{}", snap_dir, args.name);
             if Path::new(&snap_path).exists() { eprintln!("\x1b[33m⚠\x1b[0m Snapshot '{}' already exists. Delete first.", args.name); return; }
             fs::create_dir_all(&snap_path).ok();
+            // Snapshots capture full service state: owner-only access.
+            let _ = fs::set_permissions(&snap_path, fs::Permissions::from_mode(0o700));
             load_services_if_empty(dag);
-            let mut data = format!("# Snapshot: {}\n# Created: {}\n\n", args.name, chrono::Local::now().format("%Y-%m-%d %H:%M:%S"));
-            for (name, svc) in &dag.services {
-                data.push_str(&format!("[{}]\nstate = {}\npid = {:?}\nexec = {}\n\n", name, svc.state, svc.pid, svc.config.exec));
+            let mut data = format!("# Snapshot: {}\n# Created: {}\n", args.name, chrono::Local::now().format("%Y-%m-%d %H:%M:%S"));
+            if let Some(desc) = &args.description {
+                data.push_str(&format!("# Description: {}\n", desc));
             }
-            fs::write(format!("{}/state.toml", snap_path), &data).ok();
+            data.push('\n');
+            for (name, svc) in &dag.services {
+                let state = format!("{:?}", svc.state);
+                let pid = svc.pid.map(|p| p.to_string()).unwrap_or_else(|| "0".to_string());
+                data.push_str(&format!("[\"{}\"]\nstate = \"{}\"\npid = {}\nexec = \"{}\"\n\n", name.replace('"', "'"), state, pid, svc.config.exec.replace('"', "'")));
+            }
+            let _ = atomic_write(&format!("{}/state.toml", snap_path), data.as_bytes());
             let services_dir = format!("{}/services", snap_path);
             fs::create_dir_all(&services_dir).ok();
+            let _ = fs::set_permissions(&services_dir, fs::Permissions::from_mode(0o700));
             for dir in &["/system/lib/cesar/services", "/etc/cesar/services"] {
                 if let Ok(entries) = fs::read_dir(dir) {
                     for entry in entries.flatten() {
@@ -1198,7 +1340,7 @@ fn handle_security(cmd: SecurityCommand, dag: &mut DagEngine, _logger: &CesarLog
                 if Path::new(policy_path).exists() { println!("{}", fs::read_to_string(policy_path).unwrap_or_default()); }
                 else { println!("No policy configured. Default: standard"); }
             } else if let Some(ref p) = args.set {
-                fs::write("/etc/cesar/security.policy", format!("policy = {}\n", p)).ok();
+                let _ = atomic_write("/etc/cesar/security.policy", format!("policy = {}\n", p).as_bytes());
                 println!("\x1b[32m✓\x1b[0m Policy set to '{}'", p);
             }
         }
@@ -1211,8 +1353,18 @@ fn handle_security(cmd: SecurityCommand, dag: &mut DagEngine, _logger: &CesarLog
                     }
                 } else { eprintln!("\x1b[31m✗\x1b[0m Cannot read capabilities for PID {}", pid); }
             }
+            if args.add.is_some() || args.drop.is_some() {
+                eprintln!("\x1b[33m⚠\x1b[0m cap add/drop are not implemented yet (requires capset plumbing)");
+            }
         }
-        SecurityCommand::Seccomp(_args) => {
+        SecurityCommand::Seccomp(args) => {
+            // Honest stubs: advertised-but-unimplemented operations fail
+            // loudly (exit code 2) instead of silently ignoring the flag.
+            if args.apply.is_some() || args.dump.is_some() {
+                eprintln!("\x1b[33m⚠\x1b[0m seccomp --apply/--dump are not implemented yet");
+                eprintln!("  Status: planned; filters are not loaded by this build.");
+                process::exit(2);
+            }
             println!("Seccomp status:");
             if let Ok(content) = fs::read_to_string("/proc/self/status")
                 && let Some(line) = content.lines().find(|l| l.starts_with("Seccomp:")) {
@@ -1221,6 +1373,9 @@ fn handle_security(cmd: SecurityCommand, dag: &mut DagEngine, _logger: &CesarLog
         }
         SecurityCommand::Sandbox(args) => {
             if args.list { println!("Active sandboxes: (none)"); }
+            if args.create.is_some() || args.destroy.is_some() || args.info.is_some() {
+                eprintln!("\x1b[33m⚠\x1b[0m sandbox create/destroy/info are not implemented yet");
+            }
         }
         SecurityCommand::Trust(args) => {
             if args.keys {
@@ -1228,6 +1383,9 @@ fn handle_security(cmd: SecurityCommand, dag: &mut DagEngine, _logger: &CesarLog
                 if let Ok(entries) = fs::read_dir(trust_dir) {
                     for entry in entries.flatten() { println!("  {}", entry.file_name().to_string_lossy()); }
                 } else { println!("No trust keys"); }
+            }
+            if args.add.is_some() || args.remove.is_some() || args.verify {
+                eprintln!("\x1b[33m⚠\x1b[0m trust add/remove/verify are not implemented yet (keyring integration pending)");
             }
         }
     }
@@ -1240,7 +1398,9 @@ fn handle_query(cmd: QueryCommand, dag: &mut DagEngine, logger: &CesarLogger) {
             load_services_if_empty(dag);
             if let Some(ref name) = args.name {
                 if let Some(svc) = dag.services.get(name) {
-                    if args.json { println!("{{\"name\":\"{}\",\"state\":\"{}\",\"pid\":{}}}", name, svc.state, svc.pid.map_or("null".to_string(), |p| p.to_string())); }
+                    if args.json {
+                        println!("{}", serde_json::json!({"name": name, "state": svc.state.to_string(), "pid": svc.pid}));
+                    }
                     else { println!("{}: {} [{}]", name, svc.state, svc.pid.map_or("-".to_string(), |p| p.to_string())); }
                 }
             } else {
@@ -1257,7 +1417,7 @@ fn handle_query(cmd: QueryCommand, dag: &mut DagEngine, logger: &CesarLogger) {
         }
         QueryCommand::System(_args) => {
             println!("System: Cudane / Cesar v{}", env!("CARGO_PKG_VERSION"));
-            let hostname = hostname::get().map(|h| h.to_string_lossy().to_string()).unwrap_or_default();
+            let hostname = crate::hostname();
             println!("Hostname: {}", hostname);
             if let Ok(v) = fs::read_to_string("/proc/version") { println!("Kernel: {}", v.trim()); }
             if let Ok(u) = fs::read_to_string("/proc/uptime") { println!("Uptime: {}s", u.split_whitespace().next().unwrap_or("0")); }
@@ -1415,11 +1575,18 @@ fn handle_debug(cmd: DebugCommand, _dag: &mut DagEngine, _logger: &CesarLogger) 
 
 
             print!("Test logger... ");
-            let logger = CesarLogger::new();
+            // Self-test writes go to a throwaway file, never /var/log/cesar.md.
+            let test_log = std::env::temp_dir()
+                .join(format!("cesar-selftest-{}.md", process::id()))
+                .to_string_lossy()
+                .to_string();
+            let _ = fs::remove_file(&test_log);
+            let logger = CesarLogger::at_path(&test_log);
             logger.log_info("test", "self-test message");
             let log = logger.read_log();
             if log.contains("self-test message") { println!("\x1b[32m✓\x1b[0m"); passed += 1; }
             else { println!("\x1b[31m✗\x1b[0m"); failed += 1; }
+            let _ = fs::remove_file(&test_log);
 
             println!("\n{} passed, {} failed", passed, failed);
             if failed > 0 { std::process::exit(1); }
@@ -1462,7 +1629,7 @@ fn handle_self(cmd: SelfCommand, _logger: &CesarLogger) {
         SelfCommand::Version(args) => {
             if args.json { println!("{{\"name\":\"cesar\",\"version\":\"{}\"}}", version); }
             else if args.short { println!("{}", version); }
-            else { println!("Cesar Init System v{}\nSovereign PID 1 for Cudane\nLicense: Unlicense", version); }
+            else { println!("Cesar v{}\nRuntime Init System for Cudane\nLicense: MIT", version); }
         }
         SelfCommand::Completions(args) => {
             let shell = args.shell.unwrap_or_else(|| {
@@ -1498,6 +1665,281 @@ fn handle_self(cmd: SelfCommand, _logger: &CesarLogger) {
 }
 
 
+/// Atomically replace `path` with `bytes`: temp file in the same
+/// directory, fsync, rename over the destination.
+fn atomic_write(path: &str, bytes: &[u8]) -> std::io::Result<()> {
+    let target = Path::new(path);
+    let parent = target.parent().unwrap_or_else(|| Path::new("."));
+    fs::create_dir_all(parent)?;
+    let file_name = target
+        .file_name()
+        .map(|n| n.to_string_lossy().to_string())
+        .unwrap_or_else(|| "file".to_string());
+    let tmp = parent.join(format!(".{}.tmp.{}", file_name, process::id()));
+
+    let result = (|| -> std::io::Result<()> {
+        {
+            use std::io::Write;
+            let mut f = fs::File::create(&tmp)?;
+            f.write_all(bytes)?;
+            f.sync_all()?;
+        }
+        fs::rename(&tmp, target)?;
+        if let Ok(dir) = fs::File::open(parent) {
+            let _ = dir.sync_all();
+        }
+        Ok(())
+    })();
+    if result.is_err() {
+        let _ = fs::remove_file(&tmp);
+    }
+    result
+}
+
+/// Section-aware INI upsert: replaces `key` inside `section` when present,
+/// otherwise appends it to an existing `[section]` (or creates one at the
+/// end). Keys in other sections are left untouched.
+fn upsert_ini_key(content: &str, section: &str, key: &str, value: &str) -> String {
+    let header = format!("[{}]", section);
+    let mut lines: Vec<String> = Vec::new();
+    let mut in_section = false;
+    let mut replaced = false;
+
+    for line in content.lines() {
+        let trimmed = line.trim();
+        if trimmed.eq_ignore_ascii_case(&header) {
+            in_section = true;
+            lines.push(line.to_string());
+            continue;
+        }
+        if trimmed.starts_with('[') && trimmed.ends_with(']') {
+            // Entering a later section right after ours without a hit:
+            // insert before leaving.
+            if in_section && !replaced {
+                lines.push(format!("{} = {}", key, value));
+                replaced = true;
+            }
+            in_section = false;
+            lines.push(line.to_string());
+            continue;
+        }
+        if in_section
+            && !trimmed.starts_with('#')
+            && !trimmed.starts_with(';')
+            && let Some((existing, _)) = trimmed.split_once('=')
+            && existing.trim() == key
+        {
+            lines.push(format!("{} = {}", key, value));
+            replaced = true;
+            continue;
+        }
+        lines.push(line.to_string());
+    }
+
+    if !replaced {
+        if in_section || lines.iter().any(|l| l.trim().eq_ignore_ascii_case(&header)) {
+            // Still inside our section at EOF: append there.
+            lines.push(format!("{} = {}", key, value));
+        } else if content.trim().is_empty() {
+            lines.push(header);
+            lines.push(format!("{} = {}", key, value));
+        } else {
+            lines.push(String::new());
+            lines.push(header);
+            lines.push(format!("{} = {}", key, value));
+        }
+    }
+
+    let mut out = lines.join("\n");
+    out.push('\n');
+    out
+}
+
+/// Freeze/thaw the root cgroup: cgroup v2 (`cgroup.freeze`) when the
+/// unified hierarchy is present, v1 freezer controller as fallback.
+/// Returns how the operation was performed.
+fn freeze_thaw_cgroup(v1_state: &str, v2_value: &str) -> Result<&'static str, String> {
+    let v2 = "/sys/fs/cgroup/cgroup.freeze";
+    if Path::new(v2).exists() {
+        fs::write(v2, v2_value).map_err(|e| format!("{}: {}", v2, e))?;
+        Ok("cgroup v2")
+    } else {
+        let v1 = "/sys/fs/cgroup/freezer/freezer.state";
+        fs::write(v1, v1_state).map_err(|e| format!("{}: {}", v1, e))?;
+        Ok("cgroup v1 freezer")
+    }
+}
+
+/// Plugins must be root-owned and executable: prevents a local user from
+/// planting a file in /etc/cesar/plugins and waiting for it to be run.
+fn validate_plugin_file(path: &str) -> Result<(), String> {
+    use std::os::linux::fs::MetadataExt;
+    let meta = fs::metadata(path)
+        .map_err(|e| format!("cannot stat '{}': {}", path, e))?;
+    if !meta.is_file() {
+        return Err(format!("'{}' is not a regular file", path));
+    }
+    if meta.st_uid() != 0 {
+        return Err(format!(
+            "'{}' must be owned by root (found uid={})",
+            path,
+            meta.st_uid()
+        ));
+    }
+    if meta.permissions().mode() & 0o111 == 0 {
+        return Err(format!("'{}' is not executable (chmod +x)", path));
+    }
+    Ok(())
+}
+
+/// Execute a plugin alias command as an argv vector — never via a shell —
+/// so user-supplied args can't inject commands. The alias template may
+/// contain one `{}` placeholder; args are inserted there (or appended) as
+/// separate argv items.
+fn run_plugin_argv(entry_path: &str, template: &str, args: &[String]) -> Result<String, String> {
+    let (prefix, suffix) = match template.split_once("{}") {
+        Some((p, s)) => (p, s),
+        None => (template, ""),
+    };
+
+    let mut argv: Vec<String> = Vec::new();
+    argv.extend(prefix.split_whitespace().map(str::to_string));
+    argv.extend(args.iter().cloned());
+    argv.extend(suffix.split_whitespace().map(str::to_string));
+
+    let Some(program) = argv.first() else {
+        return Err("alias command is empty".to_string());
+    };
+    let program = program.clone();
+
+    let parent = Path::new(entry_path).parent().unwrap_or_else(|| Path::new("."));
+    let output = process::Command::new(&program)
+        .args(&argv[1..])
+        .current_dir(parent)
+        .output()
+        .map_err(|e| format!("failed to run '{}': {}", program, e))?;
+
+    if output.status.success() {
+        Ok(String::from_utf8_lossy(&output.stdout).to_string())
+    } else {
+        Err(String::from_utf8_lossy(&output.stderr).to_string())
+    }
+}
+
+fn convert_systemd_unit(path: &Path, name: &str) -> Result<String, String> {
+    let raw = fs::read_to_string(path).map_err(|e| e.to_string())?;
+    let joined = raw.replace("\\\n", " ");
+
+    let mut description = String::new();
+    let mut requires: Vec<String> = Vec::new();
+    let mut exec = String::new();
+    let mut restart = String::from("never");
+    let mut oneshot = false;
+    let mut environment: Vec<String> = Vec::new();
+    let mut working_directory = String::new();
+
+    let mut section = String::new();
+    for line in joined.lines() {
+        let t = line.trim();
+        if t.is_empty() || t.starts_with('#') || t.starts_with(';') {
+            continue;
+        }
+        if t.starts_with('[') && t.ends_with(']') {
+            section = t[1..t.len() - 1].to_lowercase();
+            continue;
+        }
+        let Some((key, value)) = t.split_once('=') else { continue };
+        let key = key.trim();
+        let value = value.trim().trim_matches('"');
+        match section.as_str() {
+            "unit" => match key {
+                "Description" => description = value.to_string(),
+                "Requires" | "Wants" | "After" => {
+                    for dep in value.split_whitespace() {
+                        let dep = dep.strip_suffix(".service").unwrap_or(dep);
+                        if !dep.is_empty() && !requires.iter().any(|r| r == dep) {
+                            requires.push(dep.to_string());
+                        }
+                    }
+                }
+                _ => {}
+            },
+            "service" => match key {
+                "Type" => oneshot = value.eq_ignore_ascii_case("oneshot"),
+                "ExecStart" => {
+                    if exec.is_empty() {
+                        exec = value
+                            .split(';')
+                            .map(str::trim)
+                            .find(|c| !c.is_empty() && *c != ":")
+                            .unwrap_or("")
+                            .trim_start_matches('-')
+                            .to_string();
+                    }
+                }
+                "Restart" => {
+                    restart = match value {
+                        "always" => "always".to_string(),
+                        "no" => "never".to_string(),
+                        _ => "on-failure".to_string(),
+                    };
+                }
+                "Environment" => {
+                    for part in value.split_whitespace() {
+                        environment.push(part.trim_matches('"').to_string());
+                    }
+                }
+                "WorkingDirectory" => working_directory = value.trim_start_matches('-').to_string(),
+                _ => {}
+            },
+            _ => {}
+        }
+    }
+
+    if exec.is_empty() {
+        return Err(format!("'{}': no ExecStart found", name));
+    }
+    if oneshot {
+        restart = "never".to_string();
+    }
+
+    let socket = socket_listen_stream(path).unwrap_or_default();
+
+    let mut content = format!("[Service]\nName = {}\nExec = {}\n", name, exec);
+    if !requires.is_empty() {
+        content.push_str(&format!("Requires = {}\n", requires.join(", ")));
+    }
+    content.push_str(&format!("Restart = {}\n", restart));
+    if !socket.is_empty() {
+        content.push_str(&format!("Socket = {}\n", socket));
+    }
+    if !description.is_empty() {
+        content.push_str(&format!("Description = {}\n", description));
+    }
+    if !environment.is_empty() {
+        content.push_str(&format!("Environment = {}\n", environment.join(" ")));
+    }
+    if !working_directory.is_empty() {
+        content.push_str(&format!("WorkingDirectory = {}\n", working_directory));
+    }
+    Ok(content)
+}
+
+fn socket_listen_stream(unit_path: &Path) -> Option<String> {
+    let stem = unit_path.file_stem()?.to_string_lossy().to_string();
+    let sock_path = unit_path.with_file_name(format!("{}.socket", stem));
+    let content = fs::read_to_string(sock_path).ok()?;
+    for line in content.lines() {
+        let t = line.trim();
+        if let Some((key, value)) = t.split_once('=')
+            && key.trim() == "ListenStream"
+        {
+            return Some(value.trim().to_string());
+        }
+    }
+    None
+}
+
 fn handle_service(cmd: ServiceCommand, dag: &mut DagEngine, logger: &CesarLogger) {
     match cmd {
         ServiceCommand::Start(args) => {
@@ -1508,9 +1950,13 @@ fn handle_service(cmd: ServiceCommand, dag: &mut DagEngine, logger: &CesarLogger
                     return;
                 }
                 if !svc.config.requires.is_empty() && !dag.all_deps_satisfied(&args.name) {
-                    eprintln!("\x1b[33m⚠\x1b[0m Dependencies not satisfied for '{}'", args.name);
-                    eprintln!("  Fix: Start dependency services first, or use --force");
-                    return;
+                    if args.force {
+                        eprintln!("\x1b[33m⚠\x1b[0m Starting '{}' despite unsatisfied dependencies (--force)", args.name);
+                    } else {
+                        eprintln!("\x1b[33m⚠\x1b[0m Dependencies not satisfied for '{}'", args.name);
+                        eprintln!("  Fix: Start dependency services first, or use --force");
+                        return;
+                    }
                 }
                 let exec = svc.config.exec.clone();
                 let name = args.name.clone();
@@ -1541,7 +1987,7 @@ fn handle_service(cmd: ServiceCommand, dag: &mut DagEngine, logger: &CesarLogger
                 if let Some(pid) = svc.pid {
                     dag.mark_stopping(&args.name);
                     logger.log_service_event(&args.name, &format!("Sending SIGTERM (PID {})", pid));
-                    match cprocess::kill_service_group(pid, Signal::SIGTERM as i32) {
+                    match cprocess::terminate_group(pid, std::time::Duration::from_secs(10)) {
                         Ok(()) => {
                             dag.mark_stopped(&args.name);
                             logger.log_service_event(&args.name, "Service stopped");
@@ -1568,9 +2014,8 @@ fn handle_service(cmd: ServiceCommand, dag: &mut DagEngine, logger: &CesarLogger
                 if let Some(pid) = svc.pid {
                     dag.mark_stopping(&args.name);
                     logger.log_service_event(&args.name, &format!("Restart: sending SIGTERM (PID {})", pid));
-                    let _ = cprocess::kill_service_group(pid, Signal::SIGTERM as i32);
+                    let _ = cprocess::terminate_group(pid, std::time::Duration::from_secs(10));
                     dag.mark_stopped(&args.name);
-                    std::thread::sleep(std::time::Duration::from_millis(500));
                 }
                 let exec = dag.services[&args.name].config.exec.clone();
                 let env_vars = dag.services[&args.name].config.environment.clone();
@@ -1692,7 +2137,9 @@ fn handle_service(cmd: ServiceCommand, dag: &mut DagEngine, logger: &CesarLogger
                     load_services_if_empty(dag);
                     if let Some(svc) = dag.services.get(&args.name) {
                         let exec = svc.config.exec.clone();
-                        match cprocess::spawn_service(&args.name, &exec, logger) {
+                        let env_vars = svc.config.environment.clone();
+                        let work_dir = svc.config.working_directory.clone();
+                        match cprocess::spawn_service_env(&args.name, &exec, &env_vars, work_dir.as_deref(), logger) {
                             Ok(pid) => { dag.mark_running(&args.name, pid); println!("\x1b[32m✓\x1b[0m Service '{}' started (PID {})", args.name, pid); }
                             Err(e) => eprintln!("\x1b[31m✗\x1b[0m Failed to start '{}': {}", args.name, e),
                         }
@@ -1734,7 +2181,7 @@ fn handle_service(cmd: ServiceCommand, dag: &mut DagEngine, logger: &CesarLogger
             if let Some(ref name) = args.name {
                 if let Some(svc) = dag.services.get(name) {
                     if args.json {
-                        println!("{{\"name\":\"{}\",\"state\":\"{}\",\"pid\":{}}}", name, svc.state, svc.pid.map_or("null".to_string(), |p| p.to_string()));
+                        println!("{}", serde_json::json!({"name": name, "state": svc.state.to_string(), "pid": svc.pid}));
                     } else if !args.quiet {
                         let state_str = match svc.state {
                             ServiceState::Running => "\x1b[32mrunning\x1b[0m",
@@ -1770,18 +2217,17 @@ fn handle_service(cmd: ServiceCommand, dag: &mut DagEngine, logger: &CesarLogger
         ServiceCommand::List(args) => {
             load_services_if_empty(dag);
             if args.json {
-                println!("[");
-                let mut first = true;
-                for (name, svc) in &dag.services {
-                    let running = matches!(svc.state, ServiceState::Running);
-                    if !args.all && !running && !matches!(svc.state, ServiceState::Failed) { continue; }
-                    if args.failed && !matches!(svc.state, ServiceState::Failed) { continue; }
-                    if args.running && !running { continue; }
-                    if !first { println!(","); }
-                    first = false;
-                    print!("  {{\"name\":\"{}\",\"state\":\"{}\",\"pid\":{}}}", name, svc.state, svc.pid.map_or("null".to_string(), |p| p.to_string()));
-                }
-                println!("\n]");
+                let items: Vec<serde_json::Value> = dag.services.iter()
+                    .filter(|(_, svc)| {
+                        let running = matches!(svc.state, ServiceState::Running);
+                        if !args.all && !running && !matches!(svc.state, ServiceState::Failed) { return false; }
+                        if args.failed && !matches!(svc.state, ServiceState::Failed) { return false; }
+                        if args.running && !running { return false; }
+                        true
+                    })
+                    .map(|(name, svc)| serde_json::json!({"name": name, "state": svc.state.to_string(), "pid": svc.pid}))
+                    .collect();
+                println!("{}", serde_json::to_string_pretty(&items).unwrap_or_else(|_| "[]".to_string()));
             } else {
                 for (name, svc) in &dag.services {
                     let running = matches!(svc.state, ServiceState::Running);
@@ -1842,9 +2288,12 @@ fn handle_service(cmd: ServiceCommand, dag: &mut DagEngine, logger: &CesarLogger
                         None => println!("No PID (not running)"),
                     }
                 } else if args.json {
-                    println!("{{\"name\":\"{}\",\"state\":\"{}\",\"exec\":\"{}\",\"pid\":{}}}",
-                        args.name, svc.state, svc.config.exec,
-                        svc.pid.map_or("null".to_string(), |p| p.to_string()));
+                    println!("{}", serde_json::json!({
+                        "name": args.name,
+                        "state": svc.state.to_string(),
+                        "exec": svc.config.exec,
+                        "pid": svc.pid,
+                    }));
                 } else {
                     println!("Service: {}", args.name);
                     println!("State:   {}", svc.state);
@@ -1993,9 +2442,77 @@ fn handle_service(cmd: ServiceCommand, dag: &mut DagEngine, logger: &CesarLogger
             if let Some(ref desc) = args.description { content.push_str(&format!("\nDescription = {}", desc)); }
             if let Some(ref sock) = args.socket { content.push_str(&format!("\nSocket = {}", sock)); }
             content.push('\n');
-            match fs::write(&path, &content) {
+            match atomic_write(&path, content.as_bytes()) {
                 Ok(()) => println!("\x1b[32m✓\x1b[0m Service '{}' created at {}", args.name, path),
                 Err(e) => eprintln!("\x1b[31m✗\x1b[0m Failed: {}", e),
+            }
+        }
+        ServiceCommand::Convert(args) => {
+            let src = Path::new(&args.source);
+            if !src.is_dir() {
+                eprintln!("\x1b[31m✗\x1b[0m Source directory '{}' not found", args.source);
+                return;
+            }
+            fs::create_dir_all(&args.dest).ok();
+            let mut units: Vec<std::path::PathBuf> = fs::read_dir(src)
+                .map(|entries| {
+                    entries
+                        .flatten()
+                        .map(|e| e.path())
+                        .filter(|p| p.extension().and_then(|e| e.to_str()) == Some("service"))
+                        .collect()
+                })
+                .unwrap_or_default();
+            units.sort();
+            if units.is_empty() {
+                eprintln!("\x1b[31m✗\x1b[0m No .service units found in {}", args.source);
+                return;
+            }
+            println!("Converting {} systemd unit(s) from {} → {}", units.len(), args.source, args.dest);
+            let mut converted = 0u32;
+            let mut failed = 0u32;
+            for unit in &units {
+                let name = unit.file_stem().map(|s| s.to_string_lossy().to_string()).unwrap_or_default();
+                if name.is_empty() { continue; }
+                match convert_systemd_unit(unit, &name) {
+                    Ok(content) => {
+                        let dest_path = format!("{}/{}.ini", args.dest.trim_end_matches('/'), name);
+                        if Path::new(&dest_path).exists() && !args.force {
+                            println!("\x1b[33m⚠\x1b[0m Skipped '{}': {} exists (use --force)", name, dest_path);
+                            continue;
+                        }
+                        match atomic_write(&dest_path, content.as_bytes()) {
+                            Ok(()) => {
+                                println!("  \x1b[32m✓\x1b[0m {} → {}", unit.display(), dest_path);
+                                converted += 1;
+                            }
+                            Err(e) => {
+                                eprintln!("  \x1b[31m✗\x1b[0m Cannot write {}: {}", dest_path, e);
+                                failed += 1;
+                            }
+                        }
+                    }
+                    Err(e) => {
+                        eprintln!("  \x1b[31m✗\x1b[0m {}: {}", unit.display(), e);
+                        failed += 1;
+                    }
+                }
+            }
+            if converted == 0 && failed == 0 {
+                println!("\x1b[33m⚠\x1b[0m Nothing to convert; keeping {}", args.source);
+                return;
+            }
+            if failed > 0 && !args.force {
+                eprintln!("\x1b[33m⚠\x1b[0m {} unit(s) failed to convert; '{}' kept (use --force to remove anyway)", failed, args.source);
+                return;
+            }
+            if !args.remove_source {
+                println!("\x1b[33m⚠\x1b[0m Source kept: {} (pass --remove-source to delete it)", args.source);
+                return;
+            }
+            match fs::remove_dir_all(src) {
+                Ok(()) => println!("\x1b[32m✓\x1b[0m Removed systemd services dir {}", args.source),
+                Err(e) => eprintln!("\x1b[31m✗\x1b[0m Failed to remove {}: {}", args.source, e),
             }
         }
         ServiceCommand::Rm(args) => {
@@ -2058,16 +2575,21 @@ fn handle_service(cmd: ServiceCommand, dag: &mut DagEngine, logger: &CesarLogger
             let mut last_len = fs::metadata(log_path).map(|m| m.len() as usize).unwrap_or(0);
             loop {
                 std::thread::sleep(std::time::Duration::from_secs(1));
-                if let Ok(content) = fs::read_to_string(log_path)
-                    && content.len() > last_len {
-                        let new_content = &content[last_len..];
+                if let Ok(content) = fs::read_to_string(log_path) {
+                    // Rotation/truncation: resync instead of going mute.
+                    if content.len() < last_len {
+                        last_len = 0;
+                    }
+                    if content.len() > last_len {
+                        let (new_content, end) = crate::logger::safe_tail(&content, last_len);
                         for line in new_content.lines() {
                             if line.contains("EVENT:") || line.contains("CRITICAL") || line.contains("WARNING") {
                                 println!("{}", line.trim_start_matches('>').trim());
                             }
                         }
-                        last_len = content.len();
+                        last_len = end;
                     }
+                }
             }
         }
         ServiceCommand::Tree(args) => {
@@ -2125,8 +2647,12 @@ fn handle_plugin(cmd: PluginCommand) {
                     return;
                 }
             };
-            match cps::plugin::PluginManager::run(&entry, &func, &args.args) {
-                Ok(output) => println!("{}", output),
+            if let Err(e) = validate_plugin_file(&entry.path) {
+                eprintln!("\x1b[31m✗\x1b[0m Plugin '{}' rejected: {}", entry.name, e);
+                return;
+            }
+            match run_plugin_argv(&entry.path, &func, &args.args) {
+                Ok(output) => print!("{}", output),
                 Err(e) => eprintln!("\x1b[31m✗\x1b[0m Plugin '{}' failed: {}", entry.name, e),
             }
         }
@@ -2159,6 +2685,13 @@ fn handle_plugin(cmd: PluginCommand) {
 
             if let Err(e) = fs::copy(src, &dest) {
                 eprintln!("\x1b[31m✗\x1b[0m Failed to copy plugin: {}", e);
+                return;
+            }
+
+            // Only root-owned executable files may live in the plugin dir.
+            if let Err(e) = validate_plugin_file(&dest.to_string_lossy()) {
+                let _ = fs::remove_file(&dest);
+                eprintln!("\x1b[31m✗\x1b[0m Plugin rejected: {}", e);
                 return;
             }
 

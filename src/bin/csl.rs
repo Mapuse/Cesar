@@ -164,9 +164,23 @@ fn main() {
     let cli = Cli::parse();
 
     if cli.clear {
+        // Clearing the system log is for its owner (root in practice).
+        let allowed = unsafe { libc::geteuid() } == 0
+            || fs::metadata(LOG_PATH)
+                .map(|m| {
+                    use std::os::linux::fs::MetadataExt;
+                    m.st_uid() == unsafe { libc::geteuid() }
+                })
+                .unwrap_or(false);
+        if !allowed {
+            eprintln!("\x1b[31m✗\x1b[0m Only root or the log owner may clear {}", LOG_PATH);
+            process::exit(1);
+        }
+        let host = cesar::hostname();
         let header = format!(
-            "# ─── CESAR SYSTEM LOGS SUMMARY ───\nDate: {} | Host: Cudane\n\n",
-            chrono::Local::now().format("%Y-%m-%d")
+            "# ─── CESAR SYSTEM LOGS SUMMARY ───\nDate: {} | Host: {}\n\n",
+            chrono::Local::now().format("%Y-%m-%d"),
+            if host.is_empty() { "Cudane".to_string() } else { host }
         );
         fs::write(LOG_PATH, &header).ok();
         println!("\x1b[32m✓\x1b[0m Log cleared");
@@ -306,12 +320,14 @@ fn main() {
             std::thread::sleep(std::time::Duration::from_secs(1));
             let new_content = read_log();
             if new_content.len() > last_len {
-                print!("{}", &new_content[last_len..]);
+                let (tail, end) = cesar::logger::safe_tail(new_content.as_str(), last_len);
+                print!("{}", tail);
                 std::io::stdout().flush().ok();
-                last_len = new_content.len();
+                last_len = end;
             }
         }
         println!("\nStopped.");
+        return;
     }
 
     let content = read_log();

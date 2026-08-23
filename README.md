@@ -262,6 +262,7 @@ Commands:
   diff      Diff running vs on-disk config
   validate  Validate Services
   create    Create a new service config
+  convert   Convert systemd services to Cesar (alias: conv)
   rm        Remove a service
   monitor   Monitor service health
   watch     Watch service events in real-time
@@ -530,6 +531,33 @@ csr service create -n my-svc -e /usr/bin/my-svc
 csr service create --name my-svc --exec /usr/bin/my-svc --requires udevd --restart always
 csr service create -n my-svc -e /usr/bin/my-svc -r udevd,seatd -R always -s unix:/run/my-svc.sock -d "My service"
 csr service create -n my-svc -e /usr/bin/my-svc -E "HOME=/var/lib/my-svc level=debug" -w /var/lib/my-svc
+```
+
+#### `service convert`
+
+Convert systemd `.service` units to Cesar `.ini` services. Scans the source
+directory and writes one `<name>.ini` per unit into the Cesar services dir.
+The systemd source directory is **kept** unless you pass `--remove-source`
+explicitly.
+
+Mapping: `ExecStart` → `Exec`, `Description` → `Description`,
+`Requires`/`Wants`/`After` → `Requires` (`.service` suffixes stripped),
+`Restart` → `always | on-failure | never` (`Type=oneshot` forces `never`),
+`Environment` → `Environment`, `WorkingDirectory` → `WorkingDirectory`.
+A sibling `<name>.socket` unit's `ListenStream` becomes `Socket`.
+
+| Flag | Short | Long | Type | Default | Description |
+|------|-------|------|------|---------|-------------|
+| source | `-s` | `--source` | `String` | `/etc/systemd/system` | Systemd units directory |
+| dest | `-d` | `--dest` | `String` | `/etc/cesar/services` | Cesar services directory |
+| force | `-f` | `--force` | `bool` | `false` | Overwrite existing .ini and allow conversion even if some units fail |
+| remove-source | — | `--remove-source` | `bool` | `false` | Delete the systemd directory after a successful conversion |
+
+```sh
+csr service convert
+csr service convert -s /etc/systemd/system -d /etc/cesar/services
+csr service convert --force
+csr service convert --remove-source
 ```
 
 #### `service rm`
@@ -1816,17 +1844,27 @@ csr security cap -d cap_sys_admin -p 1234
 
 | Flag | Short | Long | Type | Default | Description |
 |------|-------|------|------|---------|-------------|
-| list | `-l` | `--list` | `bool` | `false` | List filters |
-| apply | `-a` | `--apply` | `Option<String>` | — | Apply filter |
-| dump | `-d` | `--dump` | `Option<String>` | — | Dump filter |
+| list | `-l` | `--list` | `bool` | `false` | Show the current seccomp mode |
+| apply | `-a` | `--apply` | `Option<String>` | — | **Not implemented** (exits with status 2) |
+| dump | `-d` | `--dump` | `Option<String>` | — | **Not implemented** (exits with status 2) |
 | pid | `-p` | `--pid` | `Option<u32>` | — | Target PID |
 
 ```sh
 csr security seccomp -l
-csr security seccomp -a strict -p 1234
-csr security seccomp -d default
 ```
 
+#### Not-implemented subcommands
+
+Some advertised security surfaces are honest stubs: invoking them prints
+"not implemented" and exits with status 2 instead of pretending to work.
+
+- `security seccomp --apply/--dump` — filter loading is not implemented
+- `security cap --add/--drop` — capset plumbing pending
+- `security sandbox create/destroy/info`
+- `security trust add/remove/verify`
+- `system device attach/detach/info`
+
+```sh
 #### `security sandbox`
 
 | Flag | Short | Long | Type | Default | Description |
@@ -2625,7 +2663,7 @@ kill_service_group(pid, signal):
 | Profile | Command | Flags | Use case |
 | ------- | ------- | ----- | -------- |
 | Debug | `cargo build` | — | Development iteration, fast compile |
-| Release | `cargo build --release` | `opt-level = "s"`, `lto = true`, `strip = true` | Production binary, minimised size |
+| Release | `cargo build --release` | `opt-level = "z"`, `lto = true`, `codegen-units = 1`, `panic = "abort"`, `strip = true` | Production binaries, minimised size |
 | Check | `cargo check` | — | Compile-only verification, no artifacts |
 
 ```shell
@@ -2639,11 +2677,30 @@ cargo build
 cargo build --release
 ```
 
+### Feature flags
+
+| Feature | Default | Enables |
+| ------- | ------- | ------- |
+| `python` | off | cps Python subsystem: plugins, themes and TUIs through an embedded interpreter |
+
+The default build is fully native and thin — no `pyo3`, no `libpython` linked. The `cps` engine is lazy: even in a `python` build the interpreter only initialises when a plugin/theme/TUI is actually configured, and is finalised on exit.
+
+```shell
+# Thin default build (no Python)
+cargo build --release
+
+# With Python subsystem
+cargo build --release --features python
+
+# Compile-only verification of the opt-in path
+cargo check --features python
+```
+
 **Release profile:**
 
 ```toml
 [profile.release]
-opt-level = "s"      # Optimize for size
+opt-level = "z"      # Optimize for size
 lto = true           # Link-time optimization
 codegen-units = 1    # Single codegen unit for maximum optimization
 panic = "abort"      # No unwinding
@@ -2654,7 +2711,8 @@ strip = true         # Strip debug symbols
 
 ```
 target/debug/csr       -> ~15MB (debug)
-target/release/csr     -> ~2MB (release, stripped)
+target/release/csr     -> ~1.5MB (release, stripped)
+target/release/csl     -> ~0.6MB (release, stripped)
 ```
 
 ## Installation

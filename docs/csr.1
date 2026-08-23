@@ -17,7 +17,7 @@ With no command, it launches the service supervisor. Commands are grouped:
 .B service, svc
 Manage services: start (up), stop (dn), restart (rs), reload (rl), kill,
 enable, disable, status, list (ls), inspect, log, cat, edit, diff, validate,
-create, rm, monitor, watch, and dependency tree (dep).
+create, convert, rm, monitor, watch, and dependency tree (dep).
 .TP
 .B system, sys
 System-level control (boot, shutdown, and related operations).
@@ -95,6 +95,13 @@ Follow or slice a service's Markdown log.
 .B csr service create \fI-n NAME\fR \fI-e CMD\fR [\fI-r REQ\fR] [\fI-R POLICY\fR] [\fI-s SOCKET\fR] [\fI-d DESC\fR]
 Create a service unit.
 .TP
+.B csr service convert [\fI-s SRC_DIR\fR] [\fI-d DEST_DIR\fR] [\fI-f\fR] [\fI-k\fR]
+Convert systemd .service units to Cesar .ini services (default
+.I /etc/systemd/system
+→
+.IR /etc/cesar/services ),
+then remove the systemd directory (\fB-k\fR keeps it, \fB-f\fR overwrites and forces removal).
+.TP
 .B csr service rm \fI-n NAME\fR [\fI-f\fR] [\fI-p\fR]
 Remove a service (purge for its log too).
 .TP
@@ -108,8 +115,17 @@ Watch service events.
 Print the dependency graph (flat, or graphviz).
 .SH FILES
 .TP
-.I /etc/cesar/*.toml
-Service unit definitions.
+.I /system/lib/cesar/services/*.ini
+System service unit definitions.
+.TP
+.I /etc/cesar/services/*.ini
+User service unit definitions (override system units by name).
+.TP
+.I /etc/cesar/enabled/
+Optional allowlist: when populated with .ini symlinks, only those services boot.
+.TP
+.I /var/log/cesar.md
+Markdown log (view with \fBcsl\fR).
 .TP
 .I /run/cesar
 Runtime state and sockets.
