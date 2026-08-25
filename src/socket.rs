@@ -149,7 +149,7 @@ fn bind_unix_socket(path: &str, sock_type: libc::c_int) -> Result<i32, String> {
         }
         std::ptr::copy_nonoverlapping(
             c_tmp.to_bytes().as_ptr(),
-            addr.sun_path.as_mut_ptr() as *mut u8,
+            addr.sun_path.as_mut_ptr().cast(),
             c_tmp.to_bytes().len(),
         );
 
