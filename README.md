@@ -2660,22 +2660,31 @@ kill_service_group(pid, signal):
 
 ## Building
 
-| Profile | Command | Flags | Use case |
-| ------- | ------- | ----- | -------- |
-| Debug | `cargo build` | — | Development iteration, fast compile |
-| Release | `cargo build --release` | `opt-level = "z"`, `lto = true`, `codegen-units = 1`, `panic = "abort"`, `strip = true` | Production binaries, minimised size |
-| Check | `cargo check` | — | Compile-only verification, no artifacts |
+### Target profiles
+
+All build systems auto-detect the host architecture via `env.mk` and select the correct musl target.
+
+| Target | Arch | Rust triple | Prefix |
+| ------ | ---- | ----------- | ------ |
+| `amd64` | `x86_64` | `x86_64-unknown-linux-musl` | `/system` |
+| `arm64` | `aarch64` | `aarch64-unknown-linux-musl` | `/system` |
+
+> **Note:** `env.mk` maps `x86_64` → `amd64` and `aarch64` → `arm64`, then sets `RUST_TARGET` to the corresponding musl triple. All five build systems consume this.
+
+### Cargo
 
 ```shell
-# Compile-only verification (fastest)
-cargo check
+# Native (auto-detect)
+cargo build --release --locked
 
-# Debug build
-cargo build
+# Cross: amd64
+cargo build --release --locked --target x86_64-unknown-linux-musl
 
-# Release build (optimised for size)
-cargo build --release
+# Cross: arm64
+cargo build --release --locked --target aarch64-unknown-linux-musl
 ```
+
+Both `csr` and `csl` are built by every command above. Binaries land in `target/<triple>/release/`.
 
 ### Feature flags
 
@@ -2687,16 +2696,16 @@ The default build is fully native and thin — no `pyo3`, no `libpython` linked.
 
 ```shell
 # Thin default build (no Python)
-cargo build --release
+cargo build --release --locked
 
 # With Python subsystem
-cargo build --release --features python
+cargo build --release --locked --features python
 
 # Compile-only verification of the opt-in path
 cargo check --features python
 ```
 
-**Release profile:**
+### Release profile
 
 ```toml
 [profile.release]
@@ -2707,12 +2716,11 @@ panic = "abort"      # No unwinding
 strip = true         # Strip debug symbols
 ```
 
-**Output binaries:**
+### Output binaries
 
 ```
-target/debug/csr       -> ~15MB (debug)
-target/release/csr     -> ~1.5MB (release, stripped)
-target/release/csl     -> ~0.6MB (release, stripped)
+target/<triple>/release/csr     -> ~1.5MB (release, stripped)
+target/<triple>/release/csl     -> ~0.6MB (release, stripped)
 ```
 
 ## Installation
@@ -2722,43 +2730,108 @@ All build systems auto-detect `x86_64`/`aarch64` and select the correct musl tar
 ### Cargo (direct)
 
 ```shell
-cargo build --release
-# Binaries: target/release/csr, target/release/csl
-# Install:
+# Native build + install
+cargo build --release --locked
 install -Dm755 target/release/csr /system/bin/csr
 install -Dm755 target/release/csl /system/bin/csl
+
+# Cross: amd64
+cargo build --release --locked --target x86_64-unknown-linux-musl
+install -Dm755 target/x86_64-unknown-linux-musl/release/csr /system/bin/csr
+install -Dm755 target/x86_64-unknown-linux-musl/release/csl /system/bin/csl
+
+# Cross: arm64
+cargo build --release --locked --target aarch64-unknown-linux-musl
+install -Dm755 target/aarch64-unknown-linux-musl/release/csr /system/bin/csr
+install -Dm755 target/aarch64-unknown-linux-musl/release/csl /system/bin/csl
 ```
 
 ### Make
 
 ```shell
-make build                    # auto-detects arch, builds for host
-make install                  # installs to /system/bin/csr + csl
-make install DESTDIR=/mnt     # staged install
-```
+# Native
+make build
+make install
 
-### Meson
+# Cross: amd64
+make build RUST_TARGET=x86_64-unknown-linux-musl
+make install RUST_TARGET=x86_64-unknown-linux-musl
 
-```shell
-./scripts/crossgen.sh                              # generate cross file for host arch
-meson setup builddir --cross-file cross.txt --prefix=/system
-meson compile -C builddir
-meson install -C builddir
+# Cross: arm64
+make build RUST_TARGET=aarch64-unknown-linux-musl
+make install RUST_TARGET=aarch64-unknown-linux-musl
+
+# Staged install
+make install DESTDIR=/mnt
+make install RUST_TARGET=aarch64-unknown-linux-musl DESTDIR=/mnt
 ```
 
 ### Ninja
 
 ```shell
-ninja -f build.ninja                       # build
-DESTDIR=/mnt ninja -f build.ninja install  # staged install
+# Native (auto-detect)
+ninja
+
+# Cross: edit build.ninja to set the rustc --target flag, then
+ninja
+DESTDIR=/mnt ninja install
+```
+
+> Ninja does not natively support cross-compilation variables. For cross builds, edit `build.ninja` to replace the target triple, or use Meson/CMake/Make instead.
+
+### Meson
+
+```shell
+# Generate the cross-compilation file for the host arch
+./scripts/crossgen.sh
+
+# Native
+meson setup builddir --cross-file cross.txt --prefix=/system
+meson compile -C builddir
+meson install -C builddir
+
+# Cross: amd64
+./scripts/crossgen.sh x86_64-unknown-linux-musl
+meson setup builddir-amd64 --cross-file cross.txt --prefix=/system
+meson compile -C builddir-amd64
+meson install -C builddir-amd64
+
+# Cross: arm64
+./scripts/crossgen.sh aarch64-unknown-linux-musl
+meson setup builddir-arm64 --cross-file cross.txt --prefix=/system
+meson compile -C builddir-arm64
+meson install -C builddir-arm64
+
+# Staged install
+DESTDIR=/mnt meson install -C builddir-arm64
 ```
 
 ### CMake
 
 ```shell
+# Native
 cmake -B build -DCMAKE_TOOLCHAIN_FILE=toolchain.cmake -DCMAKE_INSTALL_PREFIX=/system
 cmake --build build
 cmake --install build
+
+# Cross: amd64
+cmake -B build-amd64 \
+  -DCMAKE_TOOLCHAIN_FILE=toolchain.cmake \
+  -DCMAKE_INSTALL_PREFIX=/system \
+  -DRUST_TARGET=x86_64-unknown-linux-musl
+cmake --build build-amd64
+cmake --install build-amd64
+
+# Cross: arm64
+cmake -B build-arm64 \
+  -DCMAKE_TOOLCHAIN_FILE=toolchain.cmake \
+  -DCMAKE_INSTALL_PREFIX=/system \
+  -DRUST_TARGET=aarch64-unknown-linux-musl
+cmake --build build-arm64
+cmake --install build-arm64
+
+# Staged install
+DESTDIR=/mnt cmake --install build-arm64
 ```
 
 ### MCX (Recommended)
@@ -2792,6 +2865,15 @@ Cesar is the default init system for Cudane Linux. The [**`[MCX]`**](https://git
 /var/log/cesar.md              # Markdown log file
 /var/lib/cesar/snapshots/      # Snapshot storage
 ```
+
+### Environment variables
+
+| Variable | Used by | Description |
+| -------- | ------- | ----------- |
+| `RUST_TARGET` | Cargo, Make, CMake | Override the Rust target triple for cross-compilation (e.g. `x86_64-unknown-linux-musl`, `aarch64-unknown-linux-musl`) |
+| `PROFILE` | Make | Build profile: `debug` or `release` (default: `release`) |
+| `PREFIX` | Make, Meson | Install prefix (default: `/system`) |
+| `DESTDIR` | All build systems | Staged install root — binaries are placed under `$DESTDIR$PREFIX/bin/` |
 
 ## Testing
 
