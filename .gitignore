@@ -1,35 +1,5 @@
-# Rust / Cargo
-/target/
-
-# IDE
-.vscode/
-.idea/
-*.swp
-*.swo
-*~
-
-# OS
-.DS_Store
-Thumbs.db
-
-# Build artifacts
-*.o
-*.so
-*.dylib
-*.dll
-*.rlib
-*.d
-*.pdb
-
-# Logs
-*.log
-
-# Temp
-/tmp/
-
-# Repository
-__pycache__
-
-# Meson/Ninja build dir + generated cross file
+x86_64/
+aarch64/
+target/
 builddir/
 scripts/cross.txt
