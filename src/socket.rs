@@ -103,8 +103,8 @@ fn create_tcp_socket(addr: &str) -> Result<i32, String> {
     use std::net::TcpListener;
     use std::os::fd::IntoRawFd;
 
-    let listener = TcpListener::bind(addr)
-        .map_err(|e| format!("tcp bind '{}' failed: {}", addr, e))?;
+    let listener =
+        TcpListener::bind(addr).map_err(|e| format!("tcp bind '{}' failed: {}", addr, e))?;
     Ok(listener.into_raw_fd())
 }
 
@@ -119,7 +119,8 @@ fn bind_unix_socket(path: &str, sock_type: libc::c_int) -> Result<i32, String> {
 
     let sock_path = std::path::Path::new(path);
     if let Some(parent) = sock_path.parent() {
-        std::fs::create_dir_all(parent).map_err(|e| format!("cannot create {}: {}", parent.display(), e))?;
+        std::fs::create_dir_all(parent)
+            .map_err(|e| format!("cannot create {}: {}", parent.display(), e))?;
     }
 
     let c_path = CString::new(path).map_err(|e| format!("Invalid path: {}", e))?;
@@ -129,7 +130,9 @@ fn bind_unix_socket(path: &str, sock_type: libc::c_int) -> Result<i32, String> {
         .file_name()
         .map(|n| n.to_string_lossy().to_string())
         .unwrap_or_else(|| "socket".to_string());
-    let parent = sock_path.parent().unwrap_or_else(|| std::path::Path::new("."));
+    let parent = sock_path
+        .parent()
+        .unwrap_or_else(|| std::path::Path::new("."));
     let tmp_path = parent.join(format!(".{}.bind.{}", file_name, std::process::id()));
     let _ = std::fs::remove_file(&tmp_path);
     let c_tmp = CString::new(tmp_path.to_string_lossy().as_bytes())
@@ -158,7 +161,10 @@ fn bind_unix_socket(path: &str, sock_type: libc::c_int) -> Result<i32, String> {
 
         if libc::bind(sock, addr_ptr, addr_len) < 0 {
             libc::close(sock);
-            return Err(format!("Socket bind failed: {}", std::io::Error::last_os_error()));
+            return Err(format!(
+                "Socket bind failed: {}",
+                std::io::Error::last_os_error()
+            ));
         }
 
         if sock_type == libc::SOCK_STREAM && libc::listen(sock, 128) < 0 {
@@ -214,7 +220,8 @@ mod tests {
 
     #[test]
     fn parse_socket_spec_tcp() {
-        let (addr, kind) = SocketActivator::parse_socket_spec("tcp:127.0.0.1:8080").expect("parses");
+        let (addr, kind) =
+            SocketActivator::parse_socket_spec("tcp:127.0.0.1:8080").expect("parses");
         assert_eq!(addr, "127.0.0.1:8080");
         assert_eq!(kind, SocketType::Tcp);
     }
@@ -231,9 +238,14 @@ mod tests {
         let path = format!("/tmp/opencode/cesar-dgram-{}.sock", std::process::id());
         let _ = std::fs::remove_file(&path);
         let fd = create_unix_datagram(&path).expect("socket created");
-        unsafe { libc::close(fd); }
+        unsafe {
+            libc::close(fd);
+        }
         use std::os::unix::fs::PermissionsExt;
-        let mode = std::fs::metadata(&path).expect("exists").permissions().mode();
+        let mode = std::fs::metadata(&path)
+            .expect("exists")
+            .permissions()
+            .mode();
         assert_eq!(mode & 0o777, 0o660);
         let _ = std::fs::remove_file(&path);
     }

@@ -43,9 +43,10 @@ impl EventBus {
     pub fn start_listener() -> Option<UnixDatagram> {
         let path = Path::new(EVENT_SOCKET);
         if let Ok(meta) = std::fs::metadata(path)
-            && meta.file_type().is_socket() {
-                let _ = std::fs::remove_file(path);
-            }
+            && meta.file_type().is_socket()
+        {
+            let _ = std::fs::remove_file(path);
+        }
         if let Some(parent) = path.parent() {
             let _ = std::fs::create_dir_all(parent);
         }

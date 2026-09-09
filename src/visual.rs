@@ -1,7 +1,7 @@
 use std::path::Path;
 
-use crate::service::ServiceState;
 use crate::dag::DagEngine;
+use crate::service::ServiceState;
 
 pub const CESAR_BANNER: &str = r#"
  ██████╗███████╗███████╗ █████╗ ██████╗
@@ -29,14 +29,18 @@ fn diagnose_service_failure(name: &str, error_msg: &str, dag: &DagEngine) -> Vec
                     let bin_name = parts[0];
                     if let Some(fname) = Path::new(bin_name).file_name() {
                         let fname_str = fname.to_string_lossy();
-                        let search_paths = ["/bin", "/sbin", "/usr/bin", "/usr/sbin", "/system/bin"];
+                        let search_paths =
+                            ["/bin", "/sbin", "/usr/bin", "/usr/sbin", "/system/bin"];
                         let mut found = false;
                         for sp in &search_paths {
                             let full = format!("{}/{}", sp, fname_str);
                             if Path::new(&full).exists() {
                                 diagnostics.push((
                                     format!("Found similar binary at {}", full),
-                                    format!("Update Exec in /etc/cesar/services/{}.ini to use '{}'", name, full),
+                                    format!(
+                                        "Update Exec in /etc/cesar/services/{}.ini to use '{}'",
+                                        name, full
+                                    ),
                                 ));
                                 found = true;
                                 break;
@@ -64,7 +68,8 @@ fn diagnose_service_failure(name: &str, error_msg: &str, dag: &DagEngine) -> Vec
         } else if error_msg.contains("Fork failed") {
             diagnostics.push((
                 "Process table full or insufficient memory".to_string(),
-                "Check system limits with 'ulimit -a' and reduce max user processes if needed".to_string(),
+                "Check system limits with 'ulimit -a' and reduce max user processes if needed"
+                    .to_string(),
             ));
         } else if error_msg.contains("Exec path") {
             diagnostics.push((
@@ -88,7 +93,10 @@ fn diagnose_service_failure(name: &str, error_msg: &str, dag: &DagEngine) -> Vec
                         ));
                     } else if !matches!(dep_svc.state, ServiceState::Running) {
                         diagnostics.push((
-                            format!("Dependency '{}' is not running (state: {})", dep, dep_svc.state),
+                            format!(
+                                "Dependency '{}' is not running (state: {})",
+                                dep, dep_svc.state
+                            ),
                             format!("Start '{}' before starting '{}'", dep, name),
                         ));
                     }
@@ -105,7 +113,10 @@ fn diagnose_service_failure(name: &str, error_msg: &str, dag: &DagEngine) -> Vec
     if diagnostics.is_empty() {
         diagnostics.push((
             format!("Service '{}' failed with unknown error", name),
-            format!("Check /var/log/cesar.md for details and verify /etc/cesar/services/{}.ini", name),
+            format!(
+                "Check /var/log/cesar.md for details and verify /etc/cesar/services/{}.ini",
+                name
+            ),
         ));
     }
 
@@ -146,33 +157,48 @@ pub fn build_error_tree(dag: &DagEngine, failed_services: &[(String, String)]) -
                 _ => format!("[{}]", state),
             };
 
-            let connector = if is_last_overall { "  └─" } else { "  ├─" };
+            let connector = if is_last_overall {
+                "  └─"
+            } else {
+                "  ├─"
+            };
             let name_display = format!("{:<20}", format!("{}.ini", name));
-            out.push_str(&format!("{}─► {} ──── {}\n", connector, name_display, state_str));
+            out.push_str(&format!(
+                "{}─► {} ──── {}\n",
+                connector, name_display, state_str
+            ));
 
             if state == ServiceState::Failed
-                && let Some((_, error_msg)) = failed_services.iter().find(|(n, _)| n == name) {
-                    let prefix = if is_last_overall { "      " } else { "  │   " };
+                && let Some((_, error_msg)) = failed_services.iter().find(|(n, _)| n == name)
+            {
+                let prefix = if is_last_overall {
+                    "      "
+                } else {
+                    "  │   "
+                };
 
-                    let diagnostics = diagnose_service_failure(name, error_msg, dag);
+                let diagnostics = diagnose_service_failure(name, error_msg, dag);
 
-                    out.push_str(&format!("{}  └───┼───► [ERROR] ───► {}\n", prefix, error_msg));
+                out.push_str(&format!(
+                    "{}  └───┼───► [ERROR] ───► {}\n",
+                    prefix, error_msg
+                ));
 
-                    for (i, (diagnosis, fix)) in diagnostics.iter().enumerate() {
-                        let is_last_diag = i == diagnostics.len() - 1;
-                        let branch = if is_last_diag {
-                            format!("{}       └───", prefix)
-                        } else {
-                            format!("{}       ├───", prefix)
-                        };
-                        out.push_str(&format!("{}► [CTX] ───► {}\n", branch, diagnosis));
-                        out.push_str(&format!("{}     │\n", prefix));
-                        out.push_str(&format!("{}     └───► [FIX] ───► {}\n", prefix, fix));
-                        if !is_last_diag {
-                            out.push_str(&format!("{}       │\n", prefix));
-                        }
+                for (i, (diagnosis, fix)) in diagnostics.iter().enumerate() {
+                    let is_last_diag = i == diagnostics.len() - 1;
+                    let branch = if is_last_diag {
+                        format!("{}       └───", prefix)
+                    } else {
+                        format!("{}       ├───", prefix)
+                    };
+                    out.push_str(&format!("{}► [CTX] ───► {}\n", branch, diagnosis));
+                    out.push_str(&format!("{}     │\n", prefix));
+                    out.push_str(&format!("{}     └───► [FIX] ───► {}\n", prefix, fix));
+                    if !is_last_diag {
+                        out.push_str(&format!("{}       │\n", prefix));
                     }
                 }
+            }
         }
 
         if level_idx < boot_order.len() - 1 {

@@ -1,7 +1,7 @@
 use std::ffi::CString;
 
-use nix::sys::wait::{waitpid, WaitPidFlag, WaitStatus};
-use nix::unistd::{execvp, fork, ForkResult, Pid, setpgid, setsid};
+use nix::sys::wait::{WaitPidFlag, WaitStatus, waitpid};
+use nix::unistd::{ForkResult, Pid, execvp, fork, setpgid, setsid};
 
 use crate::logger::CesarLogger;
 
@@ -51,7 +51,10 @@ pub fn spawn_service_env(
     logger: &CesarLogger,
 ) -> Result<u32, String> {
     if exec_path.contains('\0') {
-        let msg = format!("Exec line for '{}' contains NUL and cannot be executed", name);
+        let msg = format!(
+            "Exec line for '{}' contains NUL and cannot be executed",
+            name
+        );
         logger.log_error(name, &msg);
         return Err(msg);
     }
@@ -130,7 +133,8 @@ pub fn spawn_service_env(
                     for (i, fd) in listen_fds.iter().enumerate() {
                         libc::dup2(*fd, 3 + i as i32);
                     }
-                    let n_str = std::ffi::CString::new(listen_fds.len().to_string()).expect("LISTEN_FDS");
+                    let n_str =
+                        std::ffi::CString::new(listen_fds.len().to_string()).expect("LISTEN_FDS");
                     let pid_str =
                         std::ffi::CString::new(libc::getpid().to_string()).expect("LISTEN_PID");
                     libc::setenv(c"LISTEN_FDS".as_ptr(), n_str.as_ptr(), 1);
@@ -138,7 +142,9 @@ pub fn spawn_service_env(
                 }
             }
             if let Some(ref dir) = c_work_dir {
-                unsafe { libc::chdir(dir.as_ptr()); }
+                unsafe {
+                    libc::chdir(dir.as_ptr());
+                }
             }
 
             for (ck, cv) in &c_env {
@@ -152,7 +158,9 @@ pub fn spawn_service_env(
 
             // exec failed: raw _exit — no atexit handlers may run in this
             // forked clone of the init process.
-            unsafe { libc::_exit(127); }
+            unsafe {
+                libc::_exit(127);
+            }
         }
         Err(e) => {
             let msg = format!("Fork failed for '{}': {}", name, e);
@@ -342,7 +350,9 @@ mod tests {
         // Our own forked child that exits immediately becomes a zombie until
         // reaped; it must not be reported Alive.
         match unsafe { fork() } {
-            Ok(ForkResult::Child) => unsafe { libc::_exit(0); },
+            Ok(ForkResult::Child) => unsafe {
+                libc::_exit(0);
+            },
             Ok(ForkResult::Parent { child }) => {
                 let pid = child.as_raw() as u32;
                 // Spin briefly until the child is a zombie (or already reaped
@@ -374,7 +384,11 @@ mod tests {
             vec!["sh", "-c", "echo hello world"]
         );
         assert_eq!(tokenize_exec("  spaced   out  "), vec!["spaced", "out"]);
-        assert_eq!(tokenize_exec("\"\""), vec![""], "empty quoted word stays a real argv item");
+        assert_eq!(
+            tokenize_exec("\"\""),
+            vec![""],
+            "empty quoted word stays a real argv item"
+        );
         assert_eq!(
             tokenize_exec(r#"env "A=B C" tail"#),
             vec!["env", "A=B C", "tail"]

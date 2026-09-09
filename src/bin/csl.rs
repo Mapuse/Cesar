@@ -26,46 +26,35 @@ const LOG_PATH: &str = "/var/log/cesar.md";
 #[derive(Parser)]
 #[command(name = "csl", version, about = "Cesar Log Viewer")]
 struct Cli {
-
     #[arg(short = 's', long = "service")]
     service: Option<String>,
-
 
     #[arg(short = 'e', long = "errors-only")]
     errors_only: bool,
 
-
     #[arg(short = 'f', long = "follow")]
     follow: bool,
-
 
     #[arg(short = 'n', long = "lines", default_value = "50")]
     lines: usize,
 
-
     #[arg(short = 'g', long = "grep")]
     grep: Option<String>,
-
 
     #[arg(short = 't', long = "tree")]
     tree: bool,
 
-
     #[arg(short = 'T', long = "tail")]
     tail: Option<usize>,
-
 
     #[arg(short = 'c', long = "clear")]
     clear: bool,
 
-
     #[arg(short = 'S', long = "stats")]
     stats: bool,
 
-
     #[arg(short = 'm', long = "summary")]
     summary: bool,
-
 
     #[arg(short = 'j', long = "json")]
     json: bool,
@@ -88,7 +77,10 @@ fn parse_log_sections(content: &str) -> Vec<(String, Vec<String>)> {
                 sections.push((name, lines.clone()));
                 lines.clear();
             }
-            let name = line.trim_start_matches("## [").trim_end_matches(']').to_string();
+            let name = line
+                .trim_start_matches("## [")
+                .trim_end_matches(']')
+                .to_string();
             current = Some(name);
         } else if current.is_some() && !line.trim().is_empty() {
             lines.push(line.to_string());
@@ -113,7 +105,8 @@ fn diagnose_error(service_name: &str, error_msg: &str) -> Vec<(String, String)> 
                     format!("Install the package providing '{}' or update Exec in /etc/cesar/services/{}.ini", exec_path, service_name),
                 ));
 
-                let bin_name = Path::new(&exec_path).file_name()
+                let bin_name = Path::new(&exec_path)
+                    .file_name()
                     .map(|f| f.to_string_lossy().to_string())
                     .unwrap_or_default();
 
@@ -124,19 +117,23 @@ fn diagnose_error(service_name: &str, error_msg: &str) -> Vec<(String, String)> 
                         if Path::new(&full).exists() {
                             diag.push((
                                 format!("Found similar binary at {}", full),
-                                format!("Update Exec in /etc/cesar/services/{}.ini to '{}'", service_name, full),
+                                format!(
+                                    "Update Exec in /etc/cesar/services/{}.ini to '{}'",
+                                    service_name, full
+                                ),
                             ));
                             break;
                         }
                     }
                 }
             } else if let Ok(meta) = fs::metadata(exec_path)
-                && meta.permissions().mode() & 0o111 == 0 {
-                    diag.push((
-                        format!("Binary '{}' exists but is not executable", exec_path),
-                        format!("Run: chmod +x {}", exec_path),
-                    ));
-                }
+                && meta.permissions().mode() & 0o111 == 0
+            {
+                diag.push((
+                    format!("Binary '{}' exists but is not executable", exec_path),
+                    format!("Run: chmod +x {}", exec_path),
+                ));
+            }
         }
     } else if error_msg.contains("Permission denied") {
         diag.push((
@@ -153,7 +150,10 @@ fn diagnose_error(service_name: &str, error_msg: &str) -> Vec<(String, String)> 
     if diag.is_empty() {
         diag.push((
             format!("Service '{}' encountered an error", service_name),
-            format!("Check the service config at /etc/cesar/services/{}.ini", service_name),
+            format!(
+                "Check the service config at /etc/cesar/services/{}.ini",
+                service_name
+            ),
         ));
     }
 
@@ -173,14 +173,21 @@ fn main() {
                 })
                 .unwrap_or(false);
         if !allowed {
-            eprintln!("\x1b[31m✗\x1b[0m Only root or the log owner may clear {}", LOG_PATH);
+            eprintln!(
+                "\x1b[31m✗\x1b[0m Only root or the log owner may clear {}",
+                LOG_PATH
+            );
             process::exit(1);
         }
         let host = cesar::hostname();
         let header = format!(
             "# ─── CESAR SYSTEM LOGS SUMMARY ───\nDate: {} | Host: {}\n\n",
             chrono::Local::now().format("%Y-%m-%d"),
-            if host.is_empty() { "Cudane".to_string() } else { host }
+            if host.is_empty() {
+                "Cudane".to_string()
+            } else {
+                host
+            }
         );
         fs::write(LOG_PATH, &header).ok();
         println!("\x1b[32m✓\x1b[0m Log cleared");
@@ -194,7 +201,8 @@ fn main() {
             .iter()
             .filter(|(_, lines)| lines.iter().any(|l| l.contains("CRITICAL")))
             .flat_map(|(name, lines)| {
-                lines.iter()
+                lines
+                    .iter()
                     .filter(|l| l.contains("CRITICAL"))
                     .map(move |line| (name.as_str(), line.as_str()))
             })
@@ -224,9 +232,13 @@ fn main() {
             }
 
             let prefix = if is_last { "      " } else { "  │   " };
-            let msg = line.trim_start_matches('>').trim_start()
-                .trim_start_matches('[').trim_start_matches(char::is_numeric)
-                .trim_start_matches(']').trim_start();
+            let msg = line
+                .trim_start_matches('>')
+                .trim_start()
+                .trim_start_matches('[')
+                .trim_start_matches(char::is_numeric)
+                .trim_start_matches(']')
+                .trim_start();
             println!("{}  └───┼───► [ERROR] ───► {}", prefix, msg);
 
             let diagnostics = diagnose_error(svc, msg);
@@ -271,7 +283,13 @@ fn main() {
         for (name, lines) in &sections {
             let errors = lines.iter().filter(|l| l.contains("CRITICAL")).count();
             let warnings = lines.iter().filter(|l| l.contains("WARNING")).count();
-            println!("  {:<20} {} entries ({} err, {} warn)", name, lines.len(), errors, warnings);
+            println!(
+                "  {:<20} {} entries ({} err, {} warn)",
+                name,
+                lines.len(),
+                errors,
+                warnings
+            );
         }
         return;
     }
@@ -314,7 +332,8 @@ fn main() {
             nix::sys::signal::signal(
                 nix::sys::signal::Signal::SIGINT,
                 nix::sys::signal::SigHandler::Handler(handle_sigint),
-            ).ok();
+            )
+            .ok();
         }
         while FOLLOW_RUNNING.load(Ordering::SeqCst) {
             std::thread::sleep(std::time::Duration::from_secs(1));
@@ -339,10 +358,16 @@ fn main() {
 
     for (name, lines) in &sections {
         if let Some(ref filter) = cli.service
-            && name != filter { continue; }
+            && name != filter
+        {
+            continue;
+        }
 
         let filtered: Vec<&String> = if cli.errors_only {
-            lines.iter().filter(|l| l.contains("CRITICAL") || l.contains("ERROR")).collect()
+            lines
+                .iter()
+                .filter(|l| l.contains("CRITICAL") || l.contains("ERROR"))
+                .collect()
         } else {
             lines.iter().collect()
         };

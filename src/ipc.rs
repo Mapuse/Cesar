@@ -97,8 +97,8 @@ pub fn client_request(action: &ControlAction) -> Result<(String, i32), String> {
 fn request_at(path: &str, action: &ControlAction) -> Result<(String, i32), String> {
     let line = request_line(action);
 
-    let mut stream = UnixStream::connect(path)
-        .map_err(|e| format!("no control socket at {}: {}", path, e))?;
+    let mut stream =
+        UnixStream::connect(path).map_err(|e| format!("no control socket at {}: {}", path, e))?;
     let _ = stream.set_read_timeout(Some(Duration::from_secs(30)));
     stream
         .write_all(line.as_bytes())
@@ -121,7 +121,9 @@ fn request_at(path: &str, action: &ControlAction) -> Result<(String, i32), Strin
     };
 
     let mut body = String::new();
-    reader.read_to_string(&mut body).map_err(|e| format!("read failed: {}", e))?;
+    reader
+        .read_to_string(&mut body)
+        .map_err(|e| format!("read failed: {}", e))?;
     if !ok && body.is_empty() {
         return Err(status_line.trim_start_matches("ERR ").to_string());
     }
@@ -217,9 +219,17 @@ mod tests {
             ControlAction::Reboot,
             ControlAction::Poweroff,
         ] {
-            assert!(action.is_privileged(), "{} must be privileged", action.name());
+            assert!(
+                action.is_privileged(),
+                "{} must be privileged",
+                action.name()
+            );
         }
-        for action in [ControlAction::Ping, ControlAction::List, ControlAction::Status("x".into())] {
+        for action in [
+            ControlAction::Ping,
+            ControlAction::List,
+            ControlAction::Status("x".into()),
+        ] {
             assert!(!action.is_privileged(), "{} must stay open", action.name());
         }
     }
@@ -248,17 +258,20 @@ mod tests {
 
     fn temp_sock(tag: &str) -> String {
         let dir = std::env::temp_dir();
-        dir.join(format!("cesar-ipc-test-{}-{}.sock", tag, std::process::id()))
-            .to_string_lossy()
-            .to_string()
+        dir.join(format!(
+            "cesar-ipc-test-{}-{}.sock",
+            tag,
+            std::process::id()
+        ))
+        .to_string_lossy()
+        .to_string()
     }
 
     #[test]
     fn framing_round_trip_ok_with_body() {
         let path = temp_sock("ok");
         serve_one(&path, "OK 0\nhello world");
-        let (body, code) =
-            request_at(&path, &ControlAction::Status("web".into())).expect("reply");
+        let (body, code) = request_at(&path, &ControlAction::Status("web".into())).expect("reply");
         assert_eq!(code, 0);
         assert_eq!(body, "hello world\n");
     }
@@ -274,7 +287,10 @@ mod tests {
     #[test]
     fn framing_err_without_body_yields_status_text() {
         let path = temp_sock("errempty");
-        serve_one(&path, "ERR permission denied for 'stop' (uid 1000): root required");
+        serve_one(
+            &path,
+            "ERR permission denied for 'stop' (uid 1000): root required",
+        );
         let err = request_at(&path, &ControlAction::Stop("web".into())).unwrap_err();
         assert!(err.contains("permission denied"));
     }

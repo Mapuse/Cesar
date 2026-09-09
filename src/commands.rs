@@ -52,21 +52,32 @@ fn print_service_diagnostics(name: &str, error_msg: &str, dag: &DagEngine) {
                 eprintln!("  \x1b[33m→\x1b[0m Binary '{}' does not exist", exec);
                 let parts: Vec<&str> = exec.split_whitespace().collect();
                 if !parts.is_empty() {
-                    let bin_name = Path::new(parts[0]).file_name()
+                    let bin_name = Path::new(parts[0])
+                        .file_name()
                         .map(|f| f.to_string_lossy().to_string())
                         .unwrap_or_default();
                     if !bin_name.is_empty() {
-                        let search_paths = ["/bin", "/sbin", "/usr/bin", "/usr/sbin", "/system/bin"];
+                        let search_paths =
+                            ["/bin", "/sbin", "/usr/bin", "/usr/sbin", "/system/bin"];
                         for sp in &search_paths {
                             let full = format!("{}/{}", sp, bin_name);
                             if Path::new(&full).exists() {
                                 eprintln!("  \x1b[33m→\x1b[0m Found similar binary at {}", full);
-                                eprintln!("  \x1b[32m→\x1b[0m Fix: Update Exec in /etc/cesar/services/{}.ini to '{}'", name, full);
+                                eprintln!(
+                                    "  \x1b[32m→\x1b[0m Fix: Update Exec in /etc/cesar/services/{}.ini to '{}'",
+                                    name, full
+                                );
                                 return;
                             }
                         }
-                        eprintln!("  \x1b[31m✗\x1b[0m Binary '{}' not found in any search path", exec);
-                        eprintln!("  \x1b[32m→\x1b[0m Fix: Install {} or update Exec in service config", bin_name);
+                        eprintln!(
+                            "  \x1b[31m✗\x1b[0m Binary '{}' not found in any search path",
+                            exec
+                        );
+                        eprintln!(
+                            "  \x1b[32m→\x1b[0m Fix: Install {} or update Exec in service config",
+                            bin_name
+                        );
                     }
                 }
             }
@@ -89,82 +100,132 @@ fn print_service_diagnostics(name: &str, error_msg: &str, dag: &DagEngine) {
                 }
             }
         } else if error_msg.contains("depend") || error_msg.contains("Required") {
-            eprintln!("  \x1b[31m✗\x1b[0m Dependency failure for service '{}'", name);
+            eprintln!(
+                "  \x1b[31m✗\x1b[0m Dependency failure for service '{}'",
+                name
+            );
             for req in &svc.config.requires {
                 if let Some(dep_svc) = dag.services.get(req) {
                     let alive = dep_svc.pid.is_some_and(|pid| {
                         cprocess::check_process(pid) == cprocess::ProcessStatus::Alive
                     });
                     if !alive {
-                        eprintln!("  \x1b[33m→\x1b[0m Required service '{}' is not running (state: {})", req, dep_svc.state);
+                        eprintln!(
+                            "  \x1b[33m→\x1b[0m Required service '{}' is not running (state: {})",
+                            req, dep_svc.state
+                        );
                     }
                 } else {
-                    eprintln!("  \x1b[33m→\x1b[0m Required service '{}' not found in configuration", req);
+                    eprintln!(
+                        "  \x1b[33m→\x1b[0m Required service '{}' not found in configuration",
+                        req
+                    );
                 }
             }
-            eprintln!("  \x1b[32m→\x1b[0m Fix: Check dependency services with `csr service status {}`", name);
+            eprintln!(
+                "  \x1b[32m→\x1b[0m Fix: Check dependency services with `csr service status {}`",
+                name
+            );
         } else {
-            eprintln!("  \x1b[31m✗\x1b[0m Service '{}' failed: {}", name, error_msg);
-            eprintln!("  \x1b[32m→\x1b[0m Fix: Check logs with `csr log view --service {}`", name);
+            eprintln!(
+                "  \x1b[31m✗\x1b[0m Service '{}' failed: {}",
+                name, error_msg
+            );
+            eprintln!(
+                "  \x1b[32m→\x1b[0m Fix: Check logs with `csr log view --service {}`",
+                name
+            );
         }
     } else {
         eprintln!("  \x1b[31m✗\x1b[0m Service '{}' not found in DAG", name);
-        eprintln!("  \x1b[32m→\x1b[0m Fix: Check /etc/cesar/services/ for {}.ini", name);
+        eprintln!(
+            "  \x1b[32m→\x1b[0m Fix: Check /etc/cesar/services/ for {}.ini",
+            name
+        );
     }
 }
-
 
 fn handle_system(cmd: SystemCommand, dag: &mut DagEngine, logger: &CesarLogger) {
     match cmd {
         SystemCommand::Boot(args) => {
             let _ = logger;
             if args.splash {
-                let _ = std::process::Command::new("plymouth").args(["show-splash"]).output();
+                let _ = std::process::Command::new("plymouth")
+                    .args(["show-splash"])
+                    .output();
                 println!("\x1b[32m✓\x1b[0m Plymouth splash enabled");
             }
-            println!("Boot: splash={}, verbose={}, single={}, emergency={}", args.splash, args.verbose, args.single, args.emergency);
+            println!(
+                "Boot: splash={}, verbose={}, single={}, emergency={}",
+                args.splash, args.verbose, args.single, args.emergency
+            );
         }
         SystemCommand::Shutdown(args) => {
             logger.log_info("shutdown", "Graceful shutdown initiated");
             println!("\x1b[33m⚠\x1b[0m System shutting down...");
             if !args.force {
-                println!("Sending SIGTERM to all services (timeout={}s)...", args.timeout);
+                println!(
+                    "Sending SIGTERM to all services (timeout={}s)...",
+                    args.timeout
+                );
                 load_services_if_empty(dag);
                 let service_names: Vec<String> = dag.services.keys().cloned().collect();
                 for name in &service_names {
                     if let Some(svc) = dag.services.get(name)
-                        && let Some(pid) = svc.pid {
-                            unsafe { libc::kill(pid as i32, libc::SIGTERM); }
+                        && let Some(pid) = svc.pid
+                    {
+                        unsafe {
+                            libc::kill(pid as i32, libc::SIGTERM);
                         }
+                    }
                 }
-                let deadline = std::time::Instant::now() + std::time::Duration::from_secs(args.timeout);
+                let deadline =
+                    std::time::Instant::now() + std::time::Duration::from_secs(args.timeout);
                 loop {
-                    if std::time::Instant::now() >= deadline { break; }
+                    if std::time::Instant::now() >= deadline {
+                        break;
+                    }
                     let all_stopped = service_names.iter().all(|n| {
-                        dag.services.get(n).map(|s| !matches!(s.state, ServiceState::Running)).unwrap_or(true)
+                        dag.services
+                            .get(n)
+                            .map(|s| !matches!(s.state, ServiceState::Running))
+                            .unwrap_or(true)
                     });
-                    if all_stopped { break; }
+                    if all_stopped {
+                        break;
+                    }
                     std::thread::sleep(std::time::Duration::from_millis(100));
                 }
                 for name in &service_names {
                     if let Some(svc) = dag.services.get(name)
                         && matches!(svc.state, ServiceState::Running)
-                            && let Some(pid) = svc.pid {
-                                unsafe { libc::kill(pid as i32, libc::SIGKILL); }
-                            }
+                        && let Some(pid) = svc.pid
+                    {
+                        unsafe {
+                            libc::kill(pid as i32, libc::SIGKILL);
+                        }
+                    }
                 }
                 println!("Services stopped.");
             }
             // Reached only when no live daemon socket exists; the live path
             // is handled by forwarding to PID 1 in main.rs.
-            unsafe { libc::sync(); }
+            unsafe {
+                libc::sync();
+            }
             let ret = unsafe {
-                libc::reboot(if args.reboot { libc::RB_AUTOBOOT } else { libc::RB_POWER_OFF })
+                libc::reboot(if args.reboot {
+                    libc::RB_AUTOBOOT
+                } else {
+                    libc::RB_POWER_OFF
+                })
             };
             if ret != 0 {
                 let err = std::io::Error::last_os_error();
                 if err.raw_os_error() == Some(libc::EPERM) {
-                    eprintln!("\x1b[31m✗\x1b[0m Shutdown requires root (run as root, or use the live init via its control socket)");
+                    eprintln!(
+                        "\x1b[31m✗\x1b[0m Shutdown requires root (run as root, or use the live init via its control socket)"
+                    );
                 } else {
                     eprintln!("\x1b[31m✗\x1b[0m Shutdown failed: {}", err);
                 }
@@ -173,7 +234,9 @@ fn handle_system(cmd: SystemCommand, dag: &mut DagEngine, logger: &CesarLogger) 
         SystemCommand::Reboot(_args) => {
             logger.log_info("reboot", "Reboot initiated");
             println!("\x1b[33m⚠\x1b[0m Rebooting...");
-            unsafe { libc::sync(); }
+            unsafe {
+                libc::sync();
+            }
             let ret = unsafe { libc::reboot(libc::RB_AUTOBOOT) };
             if ret != 0 {
                 report_reboot_failure("Reboot", std::io::Error::last_os_error());
@@ -182,7 +245,9 @@ fn handle_system(cmd: SystemCommand, dag: &mut DagEngine, logger: &CesarLogger) 
         SystemCommand::Poweroff(_args) => {
             logger.log_info("poweroff", "Poweroff initiated");
             println!("\x1b[33m⚠\x1b[0m Powering off...");
-            unsafe { libc::sync(); }
+            unsafe {
+                libc::sync();
+            }
             let ret = unsafe { libc::reboot(libc::RB_POWER_OFF) };
             if ret != 0 {
                 report_reboot_failure("Poweroff", std::io::Error::last_os_error());
@@ -192,11 +257,17 @@ fn handle_system(cmd: SystemCommand, dag: &mut DagEngine, logger: &CesarLogger) 
             let reason = args.reason.unwrap_or_else(|| "unknown".to_string());
             logger.log_error("emergency", &reason);
             eprintln!("\x1b[31m✗\x1b[0m EMERGENCY: {}", reason);
-            let _ = std::process::Command::new("plymouth").args(["message", &format!("--text=Cesar EMERGENCY: {}", reason)]).output();
+            let _ = std::process::Command::new("plymouth")
+                .args(["message", &format!("--text=Cesar EMERGENCY: {}", reason)])
+                .output();
         }
         SystemCommand::Suspend(args) => {
             let state_path = "/sys/power/state";
-            let state = if args.hibernate || args.hybrid { "disk" } else { "mem" };
+            let state = if args.hibernate || args.hybrid {
+                "disk"
+            } else {
+                "mem"
+            };
             match fs::read_to_string(state_path) {
                 Ok(content) => {
                     let states: Vec<&str> = content.split_whitespace().collect();
@@ -206,7 +277,11 @@ fn handle_system(cmd: SystemCommand, dag: &mut DagEngine, logger: &CesarLogger) 
                             Err(e) => eprintln!("\x1b[31m✗\x1b[0m Suspend failed: {}", e),
                         }
                     } else {
-                        eprintln!("\x1b[31m✗\x1b[0m State '{}' not supported. Available: {}", state, content.trim());
+                        eprintln!(
+                            "\x1b[31m✗\x1b[0m State '{}' not supported. Available: {}",
+                            state,
+                            content.trim()
+                        );
                     }
                 }
                 Err(e) => {
@@ -217,7 +292,9 @@ fn handle_system(cmd: SystemCommand, dag: &mut DagEngine, logger: &CesarLogger) 
         }
         SystemCommand::Resume => {
             println!("\x1b[32m✓\x1b[0m System resumed from suspend");
-            let _ = std::process::Command::new("plymouth").args(["hide-splash"]).output();
+            let _ = std::process::Command::new("plymouth")
+                .args(["hide-splash"])
+                .output();
         }
         SystemCommand::Freeze(args) => {
             let _ = args;
@@ -226,45 +303,70 @@ fn handle_system(cmd: SystemCommand, dag: &mut DagEngine, logger: &CesarLogger) 
                 Err(e) => eprintln!("\x1b[31m✗\x1b[0m Freeze failed: {}", e),
             }
         }
-        SystemCommand::Thaw => {
-            match freeze_thaw_cgroup("THAWED", "0") {
-                Ok(how) => println!("\x1b[32m✓\x1b[0m Processes thawed ({})", how),
-                Err(e) => eprintln!("\x1b[31m✗\x1b[0m Thaw failed: {}", e),
-            }
-        }
+        SystemCommand::Thaw => match freeze_thaw_cgroup("THAWED", "0") {
+            Ok(how) => println!("\x1b[32m✓\x1b[0m Processes thawed ({})", how),
+            Err(e) => eprintln!("\x1b[31m✗\x1b[0m Thaw failed: {}", e),
+        },
         SystemCommand::Mount(args) => {
             if let (Some(source), Some(target)) = (&args.source, &args.target) {
                 let fs_type = args.fs_type.as_deref().unwrap_or("auto");
                 let options = args.options.as_deref().unwrap_or("");
                 let mut flags: libc::c_ulong = 0;
-                if args.recursive { flags |= libc::MS_BIND | libc::MS_REC; }
-                if args.remount { flags |= libc::MS_REMOUNT; }
-                let c_source = std::ffi::CString::new(source.as_str()).expect("mount source CString");
-                let c_target = std::ffi::CString::new(target.as_str()).expect("mount target CString");
+                if args.recursive {
+                    flags |= libc::MS_BIND | libc::MS_REC;
+                }
+                if args.remount {
+                    flags |= libc::MS_REMOUNT;
+                }
+                let c_source =
+                    std::ffi::CString::new(source.as_str()).expect("mount source CString");
+                let c_target =
+                    std::ffi::CString::new(target.as_str()).expect("mount target CString");
                 let c_fstype = std::ffi::CString::new(fs_type).expect("fs type CString");
                 let c_options = std::ffi::CString::new(options).expect("mount options CString");
-                let ret = unsafe { libc::mount(c_source.as_ptr(), c_target.as_ptr(), c_fstype.as_ptr(), flags, c_options.as_ptr() as *const libc::c_void) };
+                let ret = unsafe {
+                    libc::mount(
+                        c_source.as_ptr(),
+                        c_target.as_ptr(),
+                        c_fstype.as_ptr(),
+                        flags,
+                        c_options.as_ptr() as *const libc::c_void,
+                    )
+                };
                 if ret == 0 {
-                    println!("\x1b[32m✓\x1b[0m Mounted {} on {} ({})", source, target, fs_type);
+                    println!(
+                        "\x1b[32m✓\x1b[0m Mounted {} on {} ({})",
+                        source, target, fs_type
+                    );
                 } else {
                     let err = std::io::Error::last_os_error();
                     eprintln!("\x1b[31m✗\x1b[0m Mount failed: {}", err);
-                    eprintln!("  Source: {}, Target: {}, Type: {}", source, target, fs_type);
+                    eprintln!(
+                        "  Source: {}, Target: {}, Type: {}",
+                        source, target, fs_type
+                    );
                 }
             } else {
                 let mounts = fs::read_to_string("/proc/mounts").unwrap_or_default();
                 for line in mounts.lines() {
                     let parts: Vec<&str> = line.split_whitespace().collect();
-                    if parts.len() >= 3 { println!("  {:<30} {:<20} {}", parts[0], parts[1], parts[2]); }
+                    if parts.len() >= 3 {
+                        println!("  {:<30} {:<20} {}", parts[0], parts[1], parts[2]);
+                    }
                 }
             }
         }
         SystemCommand::Umount(args) => {
             if let Some(ref target) = args.target {
-                let c_target = std::ffi::CString::new(target.as_str()).expect("umount target CString");
+                let c_target =
+                    std::ffi::CString::new(target.as_str()).expect("umount target CString");
                 let mut flags: libc::c_int = 0;
-                if args.lazy { flags |= libc::MNT_DETACH; }
-                if args.force { flags |= libc::MNT_FORCE; }
+                if args.lazy {
+                    flags |= libc::MNT_DETACH;
+                }
+                if args.force {
+                    flags |= libc::MNT_FORCE;
+                }
                 let ret = unsafe { libc::umount2(c_target.as_ptr(), flags) };
                 if ret == 0 {
                     println!("\x1b[32m✓\x1b[0m Unmounted {}", target);
@@ -277,39 +379,68 @@ fn handle_system(cmd: SystemCommand, dag: &mut DagEngine, logger: &CesarLogger) 
             }
         }
         SystemCommand::Sync(_args) => {
-            unsafe { libc::sync(); }
+            unsafe {
+                libc::sync();
+            }
             println!("\x1b[32m✓\x1b[0m Filesystems synced");
         }
         SystemCommand::Hostname(args) => {
             if let Some(ref h) = args.set {
                 let c_hostname = std::ffi::CString::new(h.as_str()).expect("hostname CString");
                 let ret = unsafe { libc::sethostname(c_hostname.as_ptr(), h.len()) };
-                if ret == 0 { println!("\x1b[32m✓\x1b[0m Hostname set to '{}'", h); }
-                else { eprintln!("\x1b[31m✗\x1b[0m Failed to set hostname: {}", std::io::Error::last_os_error()); }
+                if ret == 0 {
+                    println!("\x1b[32m✓\x1b[0m Hostname set to '{}'", h);
+                } else {
+                    eprintln!(
+                        "\x1b[31m✗\x1b[0m Failed to set hostname: {}",
+                        std::io::Error::last_os_error()
+                    );
+                }
             } else {
                 let hostname = crate::hostname();
-                if args.short { println!("{}", hostname.split('.').next().unwrap_or(&hostname)); }
-                else { println!("{}", hostname); }
-            }
-        }
-        SystemCommand::Uptime(args) => {
-            match fs::read_to_string("/proc/uptime") {
-                Ok(uptime_str) => {
-                    let secs: f64 = uptime_str.split_whitespace().next().unwrap_or("0").parse().unwrap_or(0.0);
-                    if args.seconds { println!("{:.0}", secs); }
-                    else { println!("up {:.0} days, {:.0}:{:02.0}", secs / 86400.0, (secs % 86400.0) / 3600.0, (secs % 3600.0) / 60.0); }
+                if args.short {
+                    println!("{}", hostname.split('.').next().unwrap_or(&hostname));
+                } else {
+                    println!("{}", hostname);
                 }
-                Err(e) => eprintln!("\x1b[31m✗\x1b[0m Cannot read /proc/uptime: {}", e),
             }
         }
+        SystemCommand::Uptime(args) => match fs::read_to_string("/proc/uptime") {
+            Ok(uptime_str) => {
+                let secs: f64 = uptime_str
+                    .split_whitespace()
+                    .next()
+                    .unwrap_or("0")
+                    .parse()
+                    .unwrap_or(0.0);
+                if args.seconds {
+                    println!("{:.0}", secs);
+                } else {
+                    println!(
+                        "up {:.0} days, {:.0}:{:02.0}",
+                        secs / 86400.0,
+                        (secs % 86400.0) / 3600.0,
+                        (secs % 3600.0) / 60.0
+                    );
+                }
+            }
+            Err(e) => eprintln!("\x1b[31m✗\x1b[0m Cannot read /proc/uptime: {}", e),
+        },
         SystemCommand::Kernel(args) => match args.command {
-            Some(KernelSubCommand::List) => {
-                match fs::read_to_string("/proc/modules") {
-                    Ok(modules) => { for line in modules.lines() { let name = line.split_whitespace().next().unwrap_or(""); println!("  {}", name); } }
-                    Err(e) => eprintln!("\x1b[31m✗\x1b[0m Cannot read /proc/modules: {}", e),
+            Some(KernelSubCommand::List) => match fs::read_to_string("/proc/modules") {
+                Ok(modules) => {
+                    for line in modules.lines() {
+                        let name = line.split_whitespace().next().unwrap_or("");
+                        println!("  {}", name);
+                    }
                 }
-            }
-            Some(KernelSubCommand::Log { follow, lines, level }) => {
+                Err(e) => eprintln!("\x1b[31m✗\x1b[0m Cannot read /proc/modules: {}", e),
+            },
+            Some(KernelSubCommand::Log {
+                follow,
+                lines,
+                level,
+            }) => {
                 if follow {
                     println!("Following kernel log (Ctrl+C to stop)...");
                     let _ = process::Command::new("dmesg").arg("-w").status();
@@ -321,11 +452,23 @@ fn handle_system(cmd: SystemCommand, dag: &mut DagEngine, logger: &CesarLogger) 
                             let all_lines: Vec<&str> = dmesg.lines().collect();
                             let start = all_lines.len().saturating_sub(lines);
                             for line in &all_lines[start..] {
-                                if let Some(ref lvl) = level && !line.contains(lvl) { continue; }
+                                if let Some(ref lvl) = level
+                                    && !line.contains(lvl)
+                                {
+                                    continue;
+                                }
                                 println!("{}", line);
                             }
                         }
-                        _ => { for line in fs::read_to_string("/dev/kmsg").unwrap_or_default().lines().take(lines) { println!("{}", line); } }
+                        _ => {
+                            for line in fs::read_to_string("/dev/kmsg")
+                                .unwrap_or_default()
+                                .lines()
+                                .take(lines)
+                            {
+                                println!("{}", line);
+                            }
+                        }
                     }
                 }
                 let _ = level;
@@ -335,8 +478,14 @@ fn handle_system(cmd: SystemCommand, dag: &mut DagEngine, logger: &CesarLogger) 
                 if let Ok(entries) = fs::read_dir(sysctl_dir) {
                     for entry in entries.flatten() {
                         let name = entry.file_name().to_string_lossy().to_string();
-                        if let Some(ref pattern) = grep && !name.contains(pattern) { continue; }
-                        if let Ok(val) = fs::read_to_string(entry.path()) { println!("kernel.{} = {}", name, val.trim()); }
+                        if let Some(ref pattern) = grep
+                            && !name.contains(pattern)
+                        {
+                            continue;
+                        }
+                        if let Ok(val) = fs::read_to_string(entry.path()) {
+                            println!("kernel.{} = {}", name, val.trim());
+                        }
                     }
                 }
             }
@@ -344,75 +493,139 @@ fn handle_system(cmd: SystemCommand, dag: &mut DagEngine, logger: &CesarLogger) 
                 if let Some(ref mod_name) = name {
                     if load {
                         match process::Command::new("modprobe").arg(mod_name).status() {
-                            Ok(s) if s.success() => println!("\x1b[32m✓\x1b[0m Module '{}' loaded", mod_name),
+                            Ok(s) if s.success() => {
+                                println!("\x1b[32m✓\x1b[0m Module '{}' loaded", mod_name)
+                            }
                             _ => {
-                                let content = fs::read_to_string("/proc/modules").unwrap_or_default();
-                                if content.lines().any(|l| l.starts_with(mod_name)) { println!("\x1b[33m⚠\x1b[0m Module '{}' already loaded", mod_name); }
-                                else { eprintln!("\x1b[31m✗\x1b[0m modprobe failed. Install kmod: apt install kmod"); }
+                                let content =
+                                    fs::read_to_string("/proc/modules").unwrap_or_default();
+                                if content.lines().any(|l| l.starts_with(mod_name)) {
+                                    println!(
+                                        "\x1b[33m⚠\x1b[0m Module '{}' already loaded",
+                                        mod_name
+                                    );
+                                } else {
+                                    eprintln!(
+                                        "\x1b[31m✗\x1b[0m modprobe failed. Install kmod: apt install kmod"
+                                    );
+                                }
                             }
                         }
                     } else if unload {
                         match process::Command::new("rmmod").arg(mod_name).status() {
-                            Ok(s) if s.success() => println!("\x1b[32m✓\x1b[0m Module '{}' unloaded", mod_name),
-                            _ => eprintln!("\x1b[31m✗\x1b[0m rmmod failed. Install kmod: apt install kmod"),
+                            Ok(s) if s.success() => {
+                                println!("\x1b[32m✓\x1b[0m Module '{}' unloaded", mod_name)
+                            }
+                            _ => eprintln!(
+                                "\x1b[31m✗\x1b[0m rmmod failed. Install kmod: apt install kmod"
+                            ),
                         }
                     } else {
                         let content = fs::read_to_string("/proc/modules").unwrap_or_default();
                         if let Some(line) = content.lines().find(|l| l.starts_with(mod_name)) {
                             let parts: Vec<&str> = line.split_whitespace().collect();
                             println!("Module: {}", mod_name);
-                            if parts.len() >= 2 { println!("  Size: {} bytes", parts[1]); }
-                            if parts.len() >= 3 { println!("  Used: {}", parts[2]); }
-                        } else { eprintln!("\x1b[31m✗\x1b[0m Module '{}' not loaded", mod_name); }
+                            if parts.len() >= 2 {
+                                println!("  Size: {} bytes", parts[1]);
+                            }
+                            if parts.len() >= 3 {
+                                println!("  Used: {}", parts[2]);
+                            }
+                        } else {
+                            eprintln!("\x1b[31m✗\x1b[0m Module '{}' not loaded", mod_name);
+                        }
                     }
-                } else { eprintln!("\x1b[31m✗\x1b[0m Module name required: csr system kernel module -n <name> -l"); }
+                } else {
+                    eprintln!(
+                        "\x1b[31m✗\x1b[0m Module name required: csr system kernel module -n <name> -l"
+                    );
+                }
             }
-            None => { let v = fs::read_to_string("/proc/version").unwrap_or_default(); println!("{}", v.trim()); }
+            None => {
+                let v = fs::read_to_string("/proc/version").unwrap_or_default();
+                println!("{}", v.trim());
+            }
         },
         SystemCommand::Env(args) => {
             if let Some(ref key_val) = args.set {
                 if let Some((k, v)) = key_val.split_once('=') {
-                    unsafe { std::env::set_var(k, v); }
+                    unsafe {
+                        std::env::set_var(k, v);
+                    }
                     println!("\x1b[32m✓\x1b[0m {}={}", k, v);
-                } else { eprintln!("\x1b[31m✗\x1b[0m Invalid format. Use: KEY=VALUE"); }
+                } else {
+                    eprintln!("\x1b[31m✗\x1b[0m Invalid format. Use: KEY=VALUE");
+                }
             } else if let Some(ref key) = args.get {
                 match std::env::var(key) {
                     Ok(v) => println!("{}={}", key, v),
                     Err(_) => eprintln!("\x1b[31m✗\x1b[0m '{}' not set", key),
                 }
             } else if let Some(ref key) = args.unset {
-                unsafe { std::env::remove_var(key); }
+                unsafe {
+                    std::env::remove_var(key);
+                }
                 println!("\x1b[32m✓\x1b[0m '{}' unset", key);
             } else {
-                for (k, v) in std::env::vars() { println!("{}={}", k, v); }
+                for (k, v) in std::env::vars() {
+                    println!("{}={}", k, v);
+                }
             }
         }
         SystemCommand::Resource(_args) => {
             if let Ok(stat) = fs::read_to_string("/proc/stat")
-                && let Some(cpu_line) = stat.lines().next() {
-                    let parts: Vec<&str> = cpu_line.split_whitespace().collect();
-                    if parts.len() >= 5 {
-                        let idle: u64 = parts[4].parse().unwrap_or(0);
-                        let total: u64 = parts[1..].iter().filter_map(|p| p.parse::<u64>().ok()).sum();
-                        let used = total - idle;
-                        println!("CPU:    {:.1}% used", if total > 0 { used as f64 / total as f64 * 100.0 } else { 0.0 });
-                    }
+                && let Some(cpu_line) = stat.lines().next()
+            {
+                let parts: Vec<&str> = cpu_line.split_whitespace().collect();
+                if parts.len() >= 5 {
+                    let idle: u64 = parts[4].parse().unwrap_or(0);
+                    let total: u64 = parts[1..]
+                        .iter()
+                        .filter_map(|p| p.parse::<u64>().ok())
+                        .sum();
+                    let used = total - idle;
+                    println!(
+                        "CPU:    {:.1}% used",
+                        if total > 0 {
+                            used as f64 / total as f64 * 100.0
+                        } else {
+                            0.0
+                        }
+                    );
                 }
+            }
             if let Ok(meminfo) = fs::read_to_string("/proc/meminfo") {
-                let mut mem_total = 0u64; let mut mem_avail = 0u64;
+                let mut mem_total = 0u64;
+                let mut mem_avail = 0u64;
                 for line in meminfo.lines() {
                     let parts: Vec<&str> = line.split_whitespace().collect();
                     if parts.len() >= 2 {
                         let val: u64 = parts[1].parse().unwrap_or(0);
-                        if parts[0] == "MemTotal:" { mem_total = val; }
-                        if parts[0] == "MemAvailable:" { mem_avail = val; }
+                        if parts[0] == "MemTotal:" {
+                            mem_total = val;
+                        }
+                        if parts[0] == "MemAvailable:" {
+                            mem_avail = val;
+                        }
                     }
                 }
-                if mem_total > 0 { println!("Memory: {:.1}% used ({:.1}MB / {:.1}MB)", (mem_total - mem_avail) as f64 / mem_total as f64 * 100.0, (mem_total - mem_avail) as f64 / 1024.0, mem_total as f64 / 1024.0); }
+                if mem_total > 0 {
+                    println!(
+                        "Memory: {:.1}% used ({:.1}MB / {:.1}MB)",
+                        (mem_total - mem_avail) as f64 / mem_total as f64 * 100.0,
+                        (mem_total - mem_avail) as f64 / 1024.0,
+                        mem_total as f64 / 1024.0
+                    );
+                }
             }
             if let Ok(loadavg) = fs::read_to_string("/proc/loadavg") {
                 let parts: Vec<&str> = loadavg.split_whitespace().collect();
-                if parts.len() >= 3 { println!("Load:   {} (1m), {} (5m), {} (15m)", parts[0], parts[1], parts[2]); }
+                if parts.len() >= 3 {
+                    println!(
+                        "Load:   {} (1m), {} (5m), {} (15m)",
+                        parts[0], parts[1], parts[2]
+                    );
+                }
             }
         }
         SystemCommand::Cgroup(args) => {
@@ -424,7 +637,9 @@ fn handle_system(cmd: SystemCommand, dag: &mut DagEngine, logger: &CesarLogger) 
                         for entry in entries.flatten() {
                             let name = entry.file_name().to_string_lossy().to_string();
                             let procs = entry.path().join("cgroup.procs");
-                            let count = fs::read_to_string(&procs).map(|c| c.lines().count()).unwrap_or(0);
+                            let count = fs::read_to_string(&procs)
+                                .map(|c| c.lines().count())
+                                .unwrap_or(0);
                             println!("  {:<30} {:>6} processes", name, count);
                         }
                     }
@@ -448,7 +663,10 @@ fn handle_system(cmd: SystemCommand, dag: &mut DagEngine, logger: &CesarLogger) 
                     .map(|c| !c.trim().is_empty())
                     .unwrap_or(false);
                 if has_procs {
-                    eprintln!("\x1b[31m✗\x1b[0m '{}' still contains processes; move or kill them first", name);
+                    eprintln!(
+                        "\x1b[31m✗\x1b[0m '{}' still contains processes; move or kill them first",
+                        name
+                    );
                 } else {
                     match fs::remove_dir(&dir) {
                         Ok(()) => println!("\x1b[32m✓\x1b[0m Destroyed cgroup '{}'", name),
@@ -462,7 +680,9 @@ fn handle_system(cmd: SystemCommand, dag: &mut DagEngine, logger: &CesarLogger) 
                     Some((name, pid)) if !name.is_empty() && pid.parse::<i64>().is_ok() => {
                         let procs = Path::new(cg_root).join(name).join("cgroup.procs");
                         match fs::write(procs, format!("{}\n", pid)) {
-                            Ok(()) => println!("\x1b[32m✓\x1b[0m Attached PID {} to '{}'", pid, name),
+                            Ok(()) => {
+                                println!("\x1b[32m✓\x1b[0m Attached PID {} to '{}'", pid, name)
+                            }
                             Err(e) => eprintln!("\x1b[31m✗\x1b[0m Attach failed: {}", e),
                         }
                     }
@@ -488,10 +708,16 @@ fn handle_system(cmd: SystemCommand, dag: &mut DagEngine, logger: &CesarLogger) 
                     Err(e) => eprintln!("\x1b[31m✗\x1b[0m {}: {}", name, e),
                 }
             }
-            if !args.list && args.create.is_none() && args.destroy.is_none()
-                && args.attach.is_none() && args.stats.is_none() && args.pids.is_none()
+            if !args.list
+                && args.create.is_none()
+                && args.destroy.is_none()
+                && args.attach.is_none()
+                && args.stats.is_none()
+                && args.pids.is_none()
             {
-                println!("Usage: csr system cgroup [-l] [--create NAME] [--destroy NAME] --attach 'NAME:PID' [--stats NAME] [--pids NAME]");
+                println!(
+                    "Usage: csr system cgroup [-l] [--create NAME] [--destroy NAME] --attach 'NAME:PID' [--stats NAME] [--pids NAME]"
+                );
             }
         }
         SystemCommand::Device(args) => {
@@ -506,25 +732,39 @@ fn handle_system(cmd: SystemCommand, dag: &mut DagEngine, logger: &CesarLogger) 
                 }
             }
             if args.attach.is_some() || args.detach.is_some() || args.info.is_some() {
-                eprintln!("\x1b[33m⚠\x1b[0m device attach/detach/info are not implemented yet (device-manager integration pending)");
+                eprintln!(
+                    "\x1b[33m⚠\x1b[0m device attach/detach/info are not implemented yet (device-manager integration pending)"
+                );
             }
         }
     }
 }
 
-
 fn handle_config(cmd: ConfigCommand, _logger: &CesarLogger) {
     match cmd {
         ConfigCommand::Show(args) => {
             let path = args.file.unwrap_or_else(|| "/etc/cesar".to_string());
-            if path.ends_with(".ini") || path.ends_with(".toml") || path.ends_with(".conf") || path.ends_with(".service") {
+            if path.ends_with(".ini")
+                || path.ends_with(".toml")
+                || path.ends_with(".conf")
+                || path.ends_with(".service")
+            {
                 match fs::read_to_string(&path) {
-                    Ok(content) => { println!("--- {} ---", path); print!("{}", content); }
-                    Err(e) => { eprintln!("\x1b[31m✗\x1b[0m Cannot read {}: {}", path, e); }
+                    Ok(content) => {
+                        println!("--- {} ---", path);
+                        print!("{}", content);
+                    }
+                    Err(e) => {
+                        eprintln!("\x1b[31m✗\x1b[0m Cannot read {}: {}", path, e);
+                    }
                 }
             } else if let Ok(entries) = fs::read_dir(&path) {
-                for entry in entries.flatten() { println!("  {}", entry.file_name().to_string_lossy()); }
-            } else { eprintln!("\x1b[31m✗\x1b[0m Cannot read {}", path); }
+                for entry in entries.flatten() {
+                    println!("  {}", entry.file_name().to_string_lossy());
+                }
+            } else {
+                eprintln!("\x1b[31m✗\x1b[0m Cannot read {}", path);
+            }
         }
         ConfigCommand::Get(args) => {
             let config_path = "/etc/cesar/cesar.ini";
@@ -532,14 +772,27 @@ fn handle_config(cmd: ConfigCommand, _logger: &CesarLogger) {
                 Ok(content) => {
                     for line in content.lines() {
                         if let Some((key, value)) = line.trim().split_once('=')
-                            && key.trim() == args.key { println!("{}", value.trim()); return; }
+                            && key.trim() == args.key
+                        {
+                            println!("{}", value.trim());
+                            return;
+                        }
                     }
-                    if let Some(ref default) = args.default { println!("{}", default); }
-                    else { eprintln!("\x1b[31m✗\x1b[0m Key '{}' not found in {}", args.key, config_path); }
+                    if let Some(ref default) = args.default {
+                        println!("{}", default);
+                    } else {
+                        eprintln!(
+                            "\x1b[31m✗\x1b[0m Key '{}' not found in {}",
+                            args.key, config_path
+                        );
+                    }
                 }
                 Err(e) => {
-                    if let Some(ref default) = args.default { println!("{}", default); }
-                    else { eprintln!("\x1b[31m✗\x1b[0m Cannot read {}: {}", config_path, e); }
+                    if let Some(ref default) = args.default {
+                        println!("{}", default);
+                    } else {
+                        eprintln!("\x1b[31m✗\x1b[0m Cannot read {}: {}", config_path, e);
+                    }
                 }
             }
         }
@@ -554,20 +807,29 @@ fn handle_config(cmd: ConfigCommand, _logger: &CesarLogger) {
             }
         }
         ConfigCommand::Edit(args) => {
-            let path = args.file.unwrap_or_else(|| "/etc/cesar/cesar.ini".to_string());
-            let editor = args.editor.unwrap_or_else(|| std::env::var("EDITOR").unwrap_or_else(|_| "vi".to_string()));
+            let path = args
+                .file
+                .unwrap_or_else(|| "/etc/cesar/cesar.ini".to_string());
+            let editor = args
+                .editor
+                .unwrap_or_else(|| std::env::var("EDITOR").unwrap_or_else(|_| "vi".to_string()));
             let _ = process::Command::new(&editor).arg(&path).status();
         }
         ConfigCommand::Diff(args) => {
-            let file1 = args.file.unwrap_or_else(|| "/etc/cesar/cesar.ini".to_string());
-            let file2 = args.target.unwrap_or_else(|| "/system/lib/cesar/cesar.ini".to_string());
+            let file1 = args
+                .file
+                .unwrap_or_else(|| "/etc/cesar/cesar.ini".to_string());
+            let file2 = args
+                .target
+                .unwrap_or_else(|| "/system/lib/cesar/cesar.ini".to_string());
             let ctx = args.context.unwrap_or(3);
             let c1 = fs::read_to_string(&file1);
             let c2 = fs::read_to_string(&file2);
             match (&c1, &c2) {
                 (Ok(a), Ok(b)) => {
-                    if a == b { println!("\x1b[32m✓\x1b[0m Files are identical"); }
-                    else {
+                    if a == b {
+                        println!("\x1b[32m✓\x1b[0m Files are identical");
+                    } else {
                         let l1: Vec<&str> = a.lines().collect();
                         let l2: Vec<&str> = b.lines().collect();
                         let mut last_diff = -(ctx as isize);
@@ -592,15 +854,22 @@ fn handle_config(cmd: ConfigCommand, _logger: &CesarLogger) {
         }
         ConfigCommand::Validate(_args) => {
             let dirs = ["/system/lib/cesar/services", "/etc/cesar/services"];
-            let mut valid = 0; let mut invalid = 0;
+            let mut valid = 0;
+            let mut invalid = 0;
             for dir in &dirs {
                 if let Ok(entries) = fs::read_dir(dir) {
                     for entry in entries.flatten() {
                         let path = entry.path();
                         if path.extension().and_then(|e| e.to_str()) == Some("ini") {
                             match config::parse_cesar_config(path.to_str().unwrap_or_default()) {
-                                Ok(_) => { println!("\x1b[32m✓\x1b[0m {}", path.display()); valid += 1; }
-                                Err(e) => { invalid += 1; eprintln!("\x1b[31m✗\x1b[0m {}: {}", path.display(), e); }
+                                Ok(_) => {
+                                    println!("\x1b[32m✓\x1b[0m {}", path.display());
+                                    valid += 1;
+                                }
+                                Err(e) => {
+                                    invalid += 1;
+                                    eprintln!("\x1b[31m✗\x1b[0m {}: {}", path.display(), e);
+                                }
                             }
                         }
                     }
@@ -617,31 +886,52 @@ fn handle_config(cmd: ConfigCommand, _logger: &CesarLogger) {
             }
         }
         ConfigCommand::Export(args) => {
-            let output = args.output.unwrap_or_else(|| format!("/tmp/cesar-config-{}.toml", chrono::Local::now().format("%Y%m%d_%H%M%S")));
+            let output = args.output.unwrap_or_else(|| {
+                format!(
+                    "/tmp/cesar-config-{}.toml",
+                    chrono::Local::now().format("%Y%m%d_%H%M%S")
+                )
+            });
             match fs::copy("/etc/cesar/cesar.ini", &output) {
                 Ok(_) => println!("\x1b[32m✓\x1b[0m Config exported to '{}'", output),
                 Err(e) => eprintln!("\x1b[31m✗\x1b[0m Export failed: {}", e),
             }
         }
         ConfigCommand::Backup(args) => {
-            let output = args.output.unwrap_or_else(|| format!("/var/backup/cesar-{}", chrono::Local::now().format("%Y%m%d_%H%M%S")));
-            match process::Command::new("cp").args(["-a", "/etc/cesar", &output]).status() {
+            let output = args.output.unwrap_or_else(|| {
+                format!(
+                    "/var/backup/cesar-{}",
+                    chrono::Local::now().format("%Y%m%d_%H%M%S")
+                )
+            });
+            match process::Command::new("cp")
+                .args(["-a", "/etc/cesar", &output])
+                .status()
+            {
                 Ok(s) if s.success() => println!("\x1b[32m✓\x1b[0m Backed up to '{}'", output),
                 _ => {
                     if let Err(e) = fs::create_dir_all(&output) {
-                        eprintln!("\x1b[31m✗\x1b[0m Backup failed: cannot create '{}': {}", output, e);
+                        eprintln!(
+                            "\x1b[31m✗\x1b[0m Backup failed: cannot create '{}': {}",
+                            output, e
+                        );
                         return;
                     }
                     let mut failures = 0;
                     if let Ok(entries) = fs::read_dir("/etc/cesar") {
                         for entry in entries.flatten() {
-                            if fs::copy(entry.path(), Path::new(&output).join(entry.file_name())).is_err() {
+                            if fs::copy(entry.path(), Path::new(&output).join(entry.file_name()))
+                                .is_err()
+                            {
                                 failures += 1;
                             }
                         }
                     }
                     if failures > 0 {
-                        eprintln!("\x1b[33m⚠\x1b[0m Backed up to '{}' ({} files failed to copy)", output, failures);
+                        eprintln!(
+                            "\x1b[33m⚠\x1b[0m Backed up to '{}' ({} files failed to copy)",
+                            output, failures
+                        );
                     } else {
                         println!("\x1b[32m✓\x1b[0m Backed up to '{}'", output);
                     }
@@ -649,7 +939,10 @@ fn handle_config(cmd: ConfigCommand, _logger: &CesarLogger) {
             }
         }
         ConfigCommand::Restore(args) => {
-            if !args.force { eprintln!("\x1b[33m⚠\x1b[0m Use --force to confirm restore"); return; }
+            if !args.force {
+                eprintln!("\x1b[33m⚠\x1b[0m Use --force to confirm restore");
+                return;
+            }
             let src = Path::new(&args.file);
             if !src.exists() {
                 eprintln!("\x1b[31m✗\x1b[0m Restore source '{}' not found", args.file);
@@ -664,20 +957,31 @@ fn handle_config(cmd: ConfigCommand, _logger: &CesarLogger) {
                 let retired = Path::new("/etc").join(format!(".cesar.old.{}", stamp));
                 let _ = fs::remove_dir_all(&staging);
                 let _ = fs::remove_dir_all(&retired);
-                match process::Command::new("cp").args(["-a", &args.file, &staging.to_string_lossy()]).status() {
+                match process::Command::new("cp")
+                    .args(["-a", &args.file, &staging.to_string_lossy()])
+                    .status()
+                {
                     Ok(s) if s.success() => {}
                     _ => {
-                        eprintln!("\x1b[31m✗\x1b[0m Restore failed: cannot stage '{}'", args.file);
+                        eprintln!(
+                            "\x1b[31m✗\x1b[0m Restore failed: cannot stage '{}'",
+                            args.file
+                        );
                         return;
                     }
                 }
                 if fs::rename(live, &retired).is_err() && live.exists() {
-                    eprintln!("\x1b[31m✗\x1b[0m Restore failed: cannot move current {} aside", live.display());
+                    eprintln!(
+                        "\x1b[31m✗\x1b[0m Restore failed: cannot move current {} aside",
+                        live.display()
+                    );
                     let _ = fs::remove_dir_all(&staging);
                     return;
                 }
                 if fs::rename(&staging, live).is_err() {
-                    eprintln!("\x1b[31m✗\x1b[0m Restore failed: cannot activate staged tree; restoring previous state");
+                    eprintln!(
+                        "\x1b[31m✗\x1b[0m Restore failed: cannot activate staged tree; restoring previous state"
+                    );
                     let _ = fs::rename(&retired, live);
                     let _ = fs::remove_dir_all(&staging);
                     return;
@@ -687,7 +991,9 @@ fn handle_config(cmd: ConfigCommand, _logger: &CesarLogger) {
             } else {
                 match fs::read_to_string(src) {
                     Ok(content) => match atomic_write("/etc/cesar/cesar.ini", content.as_bytes()) {
-                        Ok(()) => println!("\x1b[32m✓\x1b[0m Restored cesar.ini from '{}'", args.file),
+                        Ok(()) => {
+                            println!("\x1b[32m✓\x1b[0m Restored cesar.ini from '{}'", args.file)
+                        }
                         Err(e) => eprintln!("\x1b[31m✗\x1b[0m Restore failed: {}", e),
                     },
                     Err(e) => eprintln!("\x1b[31m✗\x1b[0m Cannot read {}: {}", args.file, e),
@@ -716,21 +1022,31 @@ fn handle_config(cmd: ConfigCommand, _logger: &CesarLogger) {
                         let path = entry.path();
                         if path.extension().and_then(|e| e.to_str()) == Some("ini")
                             && let Ok(content) = fs::read_to_string(&path)
-                                && !content.contains("Environment") && content.contains("Exec") {
-                                    let append = "\nEnvironment =\nWorkingDirectory =\n";
-                                    let new_content = format!("{}{}", content.trim_end(), append);
-                                    println!("  {} — adding Environment/WorkingDirectory", path.display());
-                                    if !args.dry_run {
-                                        let _ = atomic_write(&path.to_string_lossy(), new_content.as_bytes());
-                                    }
-                                    migrated += 1;
-                                }
+                            && !content.contains("Environment")
+                            && content.contains("Exec")
+                        {
+                            let append = "\nEnvironment =\nWorkingDirectory =\n";
+                            let new_content = format!("{}{}", content.trim_end(), append);
+                            println!("  {} — adding Environment/WorkingDirectory", path.display());
+                            if !args.dry_run {
+                                let _ =
+                                    atomic_write(&path.to_string_lossy(), new_content.as_bytes());
+                            }
+                            migrated += 1;
+                        }
                     }
                 }
             }
-            if migrated == 0 { println!("\x1b[32m✓\x1b[0m All configs up to date"); }
-            else if args.dry_run { println!("\x1b[33m⚠\x1b[0m {} file(s) would be migrated (dry-run)", migrated); }
-            else { println!("\x1b[32m✓\x1b[0m Migrated {} file(s)", migrated); }
+            if migrated == 0 {
+                println!("\x1b[32m✓\x1b[0m All configs up to date");
+            } else if args.dry_run {
+                println!(
+                    "\x1b[33m⚠\x1b[0m {} file(s) would be migrated (dry-run)",
+                    migrated
+                );
+            } else {
+                println!("\x1b[32m✓\x1b[0m Migrated {} file(s)", migrated);
+            }
         }
     }
 }
@@ -746,12 +1062,14 @@ fn fsync_parent_dir(path: &str) {
 
 fn report_reboot_failure(action: &str, err: std::io::Error) {
     if err.raw_os_error() == Some(libc::EPERM) {
-        eprintln!("\x1b[31m✗\x1b[0m {} requires root (run as root, or use the live init via its control socket)", action);
+        eprintln!(
+            "\x1b[31m✗\x1b[0m {} requires root (run as root, or use the live init via its control socket)",
+            action
+        );
     } else {
         eprintln!("\x1b[31m✗\x1b[0m {} failed: {}", action, err);
     }
 }
-
 
 fn handle_log(cmd: LogCommand, logger: &CesarLogger) {
     let content = logger.read_log();
@@ -759,11 +1077,27 @@ fn handle_log(cmd: LogCommand, logger: &CesarLogger) {
         LogCommand::View(args) => {
             let lines: Vec<&str> = content.lines().collect();
             let mut shown = 0;
-            let iter: Box<dyn Iterator<Item = &&str>> = if args.reverse { Box::new(lines.iter().rev()) } else { Box::new(lines.iter()) };
+            let iter: Box<dyn Iterator<Item = &&str>> = if args.reverse {
+                Box::new(lines.iter().rev())
+            } else {
+                Box::new(lines.iter())
+            };
             for line in iter {
-                if shown >= args.lines { break; }
-                if let Some(ref svc) = args.service && !line.contains(&format!("[{}]", svc)) && !line.starts_with(">") { continue; }
-                if let Some(ref grep) = args.grep && !line.contains(grep) && !line.starts_with("##") { continue; }
+                if shown >= args.lines {
+                    break;
+                }
+                if let Some(ref svc) = args.service
+                    && !line.contains(&format!("[{}]", svc))
+                    && !line.starts_with(">")
+                {
+                    continue;
+                }
+                if let Some(ref grep) = args.grep
+                    && !line.contains(grep)
+                    && !line.starts_with("##")
+                {
+                    continue;
+                }
                 println!("{}", line);
                 shown += 1;
             }
@@ -771,19 +1105,40 @@ fn handle_log(cmd: LogCommand, logger: &CesarLogger) {
         LogCommand::Tail(args) => {
             let lines: Vec<&str> = content.lines().collect();
             let start = lines.len().saturating_sub(args.lines);
-            for line in &lines[start..] { println!("{}", line); }
+            for line in &lines[start..] {
+                println!("{}", line);
+            }
         }
         LogCommand::Head(args) => {
-            for (i, line) in content.lines().enumerate() { if i >= args.lines { break; } println!("{}", line); }
+            for (i, line) in content.lines().enumerate() {
+                if i >= args.lines {
+                    break;
+                }
+                println!("{}", line);
+            }
         }
         LogCommand::Grep(args) => {
-            let count = content.lines().filter(|l| l.to_lowercase().contains(&args.pattern.to_lowercase())).count();
-            if args.count { println!("{}", count); }
-            else { for (i, line) in content.lines().enumerate() { if line.to_lowercase().contains(&args.pattern.to_lowercase()) { println!("L{}: {}", i + 1, line); } } }
+            let count = content
+                .lines()
+                .filter(|l| l.to_lowercase().contains(&args.pattern.to_lowercase()))
+                .count();
+            if args.count {
+                println!("{}", count);
+            } else {
+                for (i, line) in content.lines().enumerate() {
+                    if line.to_lowercase().contains(&args.pattern.to_lowercase()) {
+                        println!("L{}: {}", i + 1, line);
+                    }
+                }
+            }
         }
         LogCommand::Clear(args) => {
-            if args.yes { logger.clear_log(); println!("\x1b[32m✓\x1b[0m Log cleared"); }
-            else { println!("\x1b[33m⚠\x1b[0m Use -y to confirm"); }
+            if args.yes {
+                logger.clear_log();
+                println!("\x1b[32m✓\x1b[0m Log cleared");
+            } else {
+                println!("\x1b[33m⚠\x1b[0m Use -y to confirm");
+            }
         }
         LogCommand::Rotate(args) => {
             let log_path = "/var/log/cesar.md";
@@ -800,7 +1155,9 @@ fn handle_log(cmd: LogCommand, logger: &CesarLogger) {
             let _ = args;
         }
         LogCommand::Archive(args) => {
-            let output = args.output.unwrap_or_else(|| "/var/log/cesar-archive".to_string());
+            let output = args
+                .output
+                .unwrap_or_else(|| "/var/log/cesar-archive".to_string());
             fs::create_dir_all(&output).ok();
             let ts = chrono::Local::now().format("%Y%m%d_%H%M%S");
             let dest = format!("{}/cesar-{}.md", output, ts);
@@ -810,7 +1167,12 @@ fn handle_log(cmd: LogCommand, logger: &CesarLogger) {
             }
         }
         LogCommand::Export(args) => {
-            let output = args.output.unwrap_or_else(|| format!("/tmp/cesar-logs-{}.txt", chrono::Local::now().format("%Y%m%d_%H%M%S")));
+            let output = args.output.unwrap_or_else(|| {
+                format!(
+                    "/tmp/cesar-logs-{}.txt",
+                    chrono::Local::now().format("%Y%m%d_%H%M%S")
+                )
+            });
             match fs::copy("/var/log/cesar.md", &output) {
                 Ok(_) => println!("\x1b[32m✓\x1b[0m Exported to '{}'", output),
                 Err(e) => eprintln!("\x1b[31m✗\x1b[0m Export failed: {}", e),
@@ -819,7 +1181,9 @@ fn handle_log(cmd: LogCommand, logger: &CesarLogger) {
         LogCommand::Follow(args) => {
             println!("Following log (Ctrl+C to stop)...");
             let log_path = "/var/log/cesar.md";
-            let mut last_len = fs::metadata(log_path).map(|m| m.len() as usize).unwrap_or(0);
+            let mut last_len = fs::metadata(log_path)
+                .map(|m| m.len() as usize)
+                .unwrap_or(0);
             loop {
                 std::thread::sleep(std::time::Duration::from_secs(args.sleep));
                 if let Ok(new_content) = fs::read_to_string(log_path) {
@@ -847,13 +1211,25 @@ fn handle_log(cmd: LogCommand, logger: &CesarLogger) {
                     }
                 }
             }
-            if total == 0 { println!("\x1b[32m✓ No errors found\x1b[0m"); }
-            else { println!("\n{} error(s) found", total); }
+            if total == 0 {
+                println!("\x1b[32m✓ No errors found\x1b[0m");
+            } else {
+                println!("\n{} error(s) found", total);
+            }
         }
         LogCommand::Warnings(_args) => {
             let mut count = 0;
-            for line in content.lines() { if line.contains("WARNING") { println!("  {}", line.trim_start_matches('>').trim()); count += 1; } }
-            if count == 0 { println!("\x1b[32m✓ No warnings found\x1b[0m"); } else { println!("\n{} warning(s) found", count); }
+            for line in content.lines() {
+                if line.contains("WARNING") {
+                    println!("  {}", line.trim_start_matches('>').trim());
+                    count += 1;
+                }
+            }
+            if count == 0 {
+                println!("\x1b[32m✓ No warnings found\x1b[0m");
+            } else {
+                println!("\n{} warning(s) found", count);
+            }
         }
         LogCommand::Stats(_args) => {
             let sections = parse_log_sections(&content);
@@ -861,7 +1237,13 @@ fn handle_log(cmd: LogCommand, logger: &CesarLogger) {
             for (name, lines) in &sections {
                 let errors = lines.iter().filter(|l| l.contains("CRITICAL")).count();
                 let warnings = lines.iter().filter(|l| l.contains("WARNING")).count();
-                println!("  {:<20} {} entries ({} err, {} warn)", name, lines.len(), errors, warnings);
+                println!(
+                    "  {:<20} {} entries ({} err, {} warn)",
+                    name,
+                    lines.len(),
+                    errors,
+                    warnings
+                );
             }
         }
         LogCommand::Summary(_args) => {
@@ -882,14 +1264,24 @@ fn parse_log_sections(content: &str) -> Vec<(String, Vec<String>)> {
     let mut lines = Vec::new();
     for line in content.lines() {
         if line.starts_with("## [") {
-            if let Some(name) = current.take() { sections.push((name, lines.clone())); lines.clear(); }
-            current = Some(line.trim_start_matches("## [").trim_end_matches(']').to_string());
-        } else if current.is_some() && !line.trim().is_empty() { lines.push(line.to_string()); }
+            if let Some(name) = current.take() {
+                sections.push((name, lines.clone()));
+                lines.clear();
+            }
+            current = Some(
+                line.trim_start_matches("## [")
+                    .trim_end_matches(']')
+                    .to_string(),
+            );
+        } else if current.is_some() && !line.trim().is_empty() {
+            lines.push(line.to_string());
+        }
     }
-    if let Some(name) = current { sections.push((name, lines)); }
+    if let Some(name) = current {
+        sections.push((name, lines));
+    }
     sections
 }
-
 
 fn handle_socket(cmd: SocketCommand, _logger: &CesarLogger) {
     match cmd {
@@ -901,32 +1293,45 @@ fn handle_socket(cmd: SocketCommand, _logger: &CesarLogger) {
                     for entry in entries.flatten() {
                         let name = entry.file_name().to_string_lossy().to_string();
                         if name.ends_with(".sock") || name.ends_with(".socket") {
-                            let state = if entry.path().exists() { "\x1b[32mactive\x1b[0m" } else { "\x1b[31minactive\x1b[0m" };
+                            let state = if entry.path().exists() {
+                                "\x1b[32mactive\x1b[0m"
+                            } else {
+                                "\x1b[31minactive\x1b[0m"
+                            };
                             println!("  {:<30} {}", name, state);
                             found = true;
                         }
                     }
                 }
             }
-            if !found { println!("No active sockets found"); }
+            if !found {
+                println!("No active sockets found");
+            }
         }
         SocketCommand::Status(args) => {
-            let path = args.path.unwrap_or_else(|| "/run/cesar/sockets".to_string());
-            if Path::new(&path).exists() { println!("Socket: {} — active", path); }
-            else { eprintln!("\x1b[31m✗\x1b[0m Socket '{}' not found", path); }
-        }
-        SocketCommand::Create(args) => {
-            match crate::socket::create_unix_socket(&args.path) {
-                Ok(fd) => println!("\x1b[32m✓\x1b[0m Socket created at '{}' (fd {})", args.path, fd),
-                Err(e) => eprintln!("\x1b[31m✗\x1b[0m {}", e),
+            let path = args
+                .path
+                .unwrap_or_else(|| "/run/cesar/sockets".to_string());
+            if Path::new(&path).exists() {
+                println!("Socket: {} — active", path);
+            } else {
+                eprintln!("\x1b[31m✗\x1b[0m Socket '{}' not found", path);
             }
         }
-        SocketCommand::Destroy(args) => {
-            match fs::remove_file(&args.path) {
-                Ok(()) => println!("\x1b[32m✓\x1b[0m Socket '{}' destroyed", args.path),
-                Err(e) => eprintln!("\x1b[31m✗\x1b[0m Failed to destroy socket '{}': {}", args.path, e),
-            }
-        }
+        SocketCommand::Create(args) => match crate::socket::create_unix_socket(&args.path) {
+            Ok(fd) => println!(
+                "\x1b[32m✓\x1b[0m Socket created at '{}' (fd {})",
+                args.path, fd
+            ),
+            Err(e) => eprintln!("\x1b[31m✗\x1b[0m {}", e),
+        },
+        SocketCommand::Destroy(args) => match fs::remove_file(&args.path) {
+            Ok(()) => println!("\x1b[32m✓\x1b[0m Socket '{}' destroyed", args.path),
+            Err(e) => eprintln!(
+                "\x1b[31m✗\x1b[0m Failed to destroy socket '{}': {}",
+                args.path, e
+            ),
+        },
         SocketCommand::Monitor(args) => {
             println!("Monitoring '{}' (Ctrl+C to stop)...", args.path);
             let mut was_present = Path::new(&args.path).exists();
@@ -934,15 +1339,20 @@ fn handle_socket(cmd: SocketCommand, _logger: &CesarLogger) {
                 std::thread::sleep(std::time::Duration::from_millis(args.interval));
                 let is_present = Path::new(&args.path).exists();
                 let ts = chrono::Local::now().format("%H:%M:%S");
-                if is_present && !was_present { println!("[{}] \x1b[32m✓\x1b[0m Socket appeared", ts); }
-                else if !is_present && was_present { println!("[{}] \x1b[31m✗\x1b[0m Socket disappeared", ts); }
+                if is_present && !was_present {
+                    println!("[{}] \x1b[32m✓\x1b[0m Socket appeared", ts);
+                } else if !is_present && was_present {
+                    println!("[{}] \x1b[31m✗\x1b[0m Socket disappeared", ts);
+                }
                 was_present = is_present;
             }
         }
         SocketCommand::Trace(args) => {
             println!("Tracing socket '{}' (Ctrl+C to stop)...", args.path);
             let log_path = "/var/log/cesar.md";
-            let mut last_len = fs::metadata(log_path).map(|m| m.len() as usize).unwrap_or(0);
+            let mut last_len = fs::metadata(log_path)
+                .map(|m| m.len() as usize)
+                .unwrap_or(0);
             loop {
                 std::thread::sleep(std::time::Duration::from_secs(1));
                 if let Ok(content) = fs::read_to_string(log_path) {
@@ -953,7 +1363,9 @@ fn handle_socket(cmd: SocketCommand, _logger: &CesarLogger) {
                     if content.len() > last_len {
                         let (tail, end) = crate::logger::safe_tail(&content, last_len);
                         for line in tail.lines() {
-                            if line.contains("socket") || line.contains(&args.path) { println!("{}", line.trim_start_matches('>').trim()); }
+                            if line.contains("socket") || line.contains(&args.path) {
+                                println!("{}", line.trim_start_matches('>').trim());
+                            }
                         }
                         last_len = end;
                     }
@@ -961,8 +1373,9 @@ fn handle_socket(cmd: SocketCommand, _logger: &CesarLogger) {
             }
         }
         SocketCommand::Activate(args) => {
-            if Path::new(&args.path).exists() { println!("\x1b[32m✓\x1b[0m Socket '{}' already active", args.path); }
-            else {
+            if Path::new(&args.path).exists() {
+                println!("\x1b[32m✓\x1b[0m Socket '{}' already active", args.path);
+            } else {
                 match crate::socket::create_unix_socket(&args.path) {
                     Ok(_fd) => println!("\x1b[32m✓\x1b[0m Socket '{}' activated", args.path),
                     Err(e) => eprintln!("\x1b[31m✗\x1b[0m Failed: {}", e),
@@ -970,25 +1383,31 @@ fn handle_socket(cmd: SocketCommand, _logger: &CesarLogger) {
             }
         }
         SocketCommand::Query(args) => {
-            if !Path::new(&args.path).exists() { eprintln!("\x1b[31m✗\x1b[0m Socket '{}' not found", args.path); return; }
-            use std::os::unix::net::UnixStream;
+            if !Path::new(&args.path).exists() {
+                eprintln!("\x1b[31m✗\x1b[0m Socket '{}' not found", args.path);
+                return;
+            }
             use std::io::Write;
+            use std::os::unix::net::UnixStream;
             match UnixStream::connect(&args.path) {
                 Ok(mut stream) => {
-                    stream.set_read_timeout(Some(std::time::Duration::from_secs(args.timeout))).ok();
+                    stream
+                        .set_read_timeout(Some(std::time::Duration::from_secs(args.timeout)))
+                        .ok();
                     if let Some(ref data) = args.data {
                         stream.write_all(data.as_bytes()).ok();
                         let mut response = Vec::new();
                         std::io::Read::read(&mut stream, &mut response).ok();
                         println!("Received {} bytes", response.len());
-                    } else { println!("Connected to '{}'. Use -d to send data", args.path); }
+                    } else {
+                        println!("Connected to '{}'. Use -d to send data", args.path);
+                    }
                 }
                 Err(e) => eprintln!("\x1b[31m✗\x1b[0m Cannot connect: {}", e),
             }
         }
     }
 }
-
 
 fn handle_daemon(cmd: DaemonCommand, dag: &mut DagEngine, logger: &CesarLogger) {
     match cmd {
@@ -999,28 +1418,45 @@ fn handle_daemon(cmd: DaemonCommand, dag: &mut DagEngine, logger: &CesarLogger) 
                 let env_vars = svc.config.environment.clone();
                 let work_dir = svc.config.working_directory.clone();
                 let name = args.name.clone();
-                match cprocess::spawn_service_env(&name, &exec, &env_vars, work_dir.as_deref(), logger) {
-                    Ok(pid) => { dag.mark_running(&name, pid); println!("\x1b[32m✓\x1b[0m Daemon '{}' started (PID {})", name, pid); }
-                    Err(e) => { dag.mark_failed(&name); eprintln!("\x1b[31m✗\x1b[0m {}", e); }
+                match cprocess::spawn_service_env(
+                    &name,
+                    &exec,
+                    &env_vars,
+                    work_dir.as_deref(),
+                    logger,
+                ) {
+                    Ok(pid) => {
+                        dag.mark_running(&name, pid);
+                        println!("\x1b[32m✓\x1b[0m Daemon '{}' started (PID {})", name, pid);
+                    }
+                    Err(e) => {
+                        dag.mark_failed(&name);
+                        eprintln!("\x1b[31m✗\x1b[0m {}", e);
+                    }
                 }
-            } else { eprintln!("\x1b[31m✗\x1b[0m Daemon '{}' not found", args.name); }
+            } else {
+                eprintln!("\x1b[31m✗\x1b[0m Daemon '{}' not found", args.name);
+            }
         }
         DaemonCommand::Stop(args) => {
             load_services_if_empty(dag);
             if let Some(svc) = dag.services.get(&args.name)
-                && let Some(pid) = svc.pid {
-                    let _ = cprocess::kill_service_group(pid, Signal::SIGTERM as i32);
-                    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
-                    while std::time::Instant::now() < deadline {
-                        if cprocess::check_process(pid) != cprocess::ProcessStatus::Alive { break; }
-                        std::thread::sleep(std::time::Duration::from_millis(50));
+                && let Some(pid) = svc.pid
+            {
+                let _ = cprocess::kill_service_group(pid, Signal::SIGTERM as i32);
+                let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+                while std::time::Instant::now() < deadline {
+                    if cprocess::check_process(pid) != cprocess::ProcessStatus::Alive {
+                        break;
                     }
-                    if cprocess::check_process(pid) == cprocess::ProcessStatus::Alive {
-                        let _ = cprocess::kill_service_group(pid, Signal::SIGKILL as i32);
-                    }
-                    dag.mark_stopped(&args.name);
-                    println!("\x1b[32m✓\x1b[0m Daemon '{}' stopped", args.name);
+                    std::thread::sleep(std::time::Duration::from_millis(50));
                 }
+                if cprocess::check_process(pid) == cprocess::ProcessStatus::Alive {
+                    let _ = cprocess::kill_service_group(pid, Signal::SIGKILL as i32);
+                }
+                dag.mark_stopped(&args.name);
+                println!("\x1b[32m✓\x1b[0m Daemon '{}' stopped", args.name);
+            }
         }
         DaemonCommand::Restart(args) => {
             load_services_if_empty(dag);
@@ -1029,7 +1465,9 @@ fn handle_daemon(cmd: DaemonCommand, dag: &mut DagEngine, logger: &CesarLogger) 
                     let _ = cprocess::kill_service_group(pid, Signal::SIGTERM as i32);
                     let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
                     while std::time::Instant::now() < deadline {
-                        if cprocess::check_process(pid) != cprocess::ProcessStatus::Alive { break; }
+                        if cprocess::check_process(pid) != cprocess::ProcessStatus::Alive {
+                            break;
+                        }
                         std::thread::sleep(std::time::Duration::from_millis(50));
                     }
                     dag.mark_stopped(&args.name);
@@ -1038,9 +1476,21 @@ fn handle_daemon(cmd: DaemonCommand, dag: &mut DagEngine, logger: &CesarLogger) 
                 let env_vars = svc.config.environment.clone();
                 let work_dir = svc.config.working_directory.clone();
                 let name = args.name.clone();
-                match cprocess::spawn_service_env(&name, &exec, &env_vars, work_dir.as_deref(), logger) {
-                    Ok(pid) => { dag.mark_running(&name, pid); println!("\x1b[32m✓\x1b[0m Daemon '{}' restarted (PID {})", name, pid); }
-                    Err(e) => { dag.mark_failed(&name); eprintln!("\x1b[31m✗\x1b[0m {}", e); }
+                match cprocess::spawn_service_env(
+                    &name,
+                    &exec,
+                    &env_vars,
+                    work_dir.as_deref(),
+                    logger,
+                ) {
+                    Ok(pid) => {
+                        dag.mark_running(&name, pid);
+                        println!("\x1b[32m✓\x1b[0m Daemon '{}' restarted (PID {})", name, pid);
+                    }
+                    Err(e) => {
+                        dag.mark_failed(&name);
+                        eprintln!("\x1b[31m✗\x1b[0m {}", e);
+                    }
                 }
             }
         }
@@ -1048,15 +1498,29 @@ fn handle_daemon(cmd: DaemonCommand, dag: &mut DagEngine, logger: &CesarLogger) 
             load_services_if_empty(dag);
             if let Some(ref name) = args.name {
                 if let Some(svc) = dag.services.get(name) {
-                    let icon = match svc.state { ServiceState::Running => "\x1b[32m●\x1b[0m", ServiceState::Failed => "\x1b[31m✗\x1b[0m", ServiceState::Reloading => "\x1b[33m↻\x1b[0m", ServiceState::Stopping => "\x1b[33m⏹\x1b[0m", _ => "\x1b[90m○\x1b[0m" };
+                    let icon = match svc.state {
+                        ServiceState::Running => "\x1b[32m●\x1b[0m",
+                        ServiceState::Failed => "\x1b[31m✗\x1b[0m",
+                        ServiceState::Reloading => "\x1b[33m↻\x1b[0m",
+                        ServiceState::Stopping => "\x1b[33m⏹\x1b[0m",
+                        _ => "\x1b[90m○\x1b[0m",
+                    };
                     println!("{} Daemon: {} [{}]", icon, name, svc.state);
                 }
-            } else { visual::print_status(dag); }
+            } else {
+                visual::print_status(dag);
+            }
         }
         DaemonCommand::List(args) => {
             load_services_if_empty(dag);
             for (name, svc) in &dag.services {
-                let icon = match svc.state { ServiceState::Running => "\x1b[32m●\x1b[0m", ServiceState::Failed => "\x1b[31m✗\x1b[0m", ServiceState::Reloading => "\x1b[33m↻\x1b[0m", ServiceState::Stopping => "\x1b[33m⏹\x1b[0m", _ => "\x1b[90m○\x1b[0m" };
+                let icon = match svc.state {
+                    ServiceState::Running => "\x1b[32m●\x1b[0m",
+                    ServiceState::Failed => "\x1b[31m✗\x1b[0m",
+                    ServiceState::Reloading => "\x1b[33m↻\x1b[0m",
+                    ServiceState::Stopping => "\x1b[33m⏹\x1b[0m",
+                    _ => "\x1b[90m○\x1b[0m",
+                };
                 println!("{} {}", icon, name);
             }
             let _ = args;
@@ -1065,22 +1529,35 @@ fn handle_daemon(cmd: DaemonCommand, dag: &mut DagEngine, logger: &CesarLogger) 
             let log_content = logger.read_log();
             let lines: Vec<&str> = log_content.lines().collect();
             let start = lines.len().saturating_sub(args.lines);
-            for line in &lines[start..] { println!("{}", line); }
+            for line in &lines[start..] {
+                println!("{}", line);
+            }
         }
         DaemonCommand::Install(args) => {
             if let Some(ref from) = args.from {
                 let dest = format!("/etc/cesar/services/{}.ini", args.name);
                 fs::create_dir_all("/etc/cesar/services").ok();
                 match fs::copy(from, &dest) {
-                    Ok(_) => println!("\x1b[32m✓\x1b[0m Daemon '{}' installed from '{}'", args.name, from),
+                    Ok(_) => println!(
+                        "\x1b[32m✓\x1b[0m Daemon '{}' installed from '{}'",
+                        args.name, from
+                    ),
                     Err(e) => eprintln!("\x1b[31m✗\x1b[0m Install failed: {}", e),
                 }
-            } else { eprintln!("\x1b[31m✗\x1b[0m Source required: csr daemon install -n {} -f /path/to/service.ini", args.name); }
+            } else {
+                eprintln!(
+                    "\x1b[31m✗\x1b[0m Source required: csr daemon install -n {} -f /path/to/service.ini",
+                    args.name
+                );
+            }
         }
         DaemonCommand::Uninstall(args) => {
             let path = format!("/etc/cesar/services/{}.ini", args.name);
             match fs::remove_file(&path) {
-                Ok(()) => { println!("\x1b[32m✓\x1b[0m Daemon '{}' uninstalled", args.name); fs::remove_file(format!("/etc/cesar/enabled/{}.ini", args.name)).ok(); }
+                Ok(()) => {
+                    println!("\x1b[32m✓\x1b[0m Daemon '{}' uninstalled", args.name);
+                    fs::remove_file(format!("/etc/cesar/enabled/{}.ini", args.name)).ok();
+                }
                 Err(e) => eprintln!("\x1b[31m✗\x1b[0m Uninstall failed: {}", e),
             }
         }
@@ -1088,25 +1565,46 @@ fn handle_daemon(cmd: DaemonCommand, dag: &mut DagEngine, logger: &CesarLogger) 
             if let Some(ref from) = args.from {
                 let dest = format!("/etc/cesar/services/{}.ini", args.name);
                 let ts = chrono::Local::now().format("%Y%m%d_%H%M%S");
-                if Path::new(&dest).exists() { fs::copy(&dest, format!("{}.{}", dest, ts)).ok(); }
+                if Path::new(&dest).exists() {
+                    fs::copy(&dest, format!("{}.{}", dest, ts)).ok();
+                }
                 match fs::copy(from, &dest) {
                     Ok(_) => println!("\x1b[32m✓\x1b[0m Daemon '{}' updated", args.name),
                     Err(e) => eprintln!("\x1b[31m✗\x1b[0m Update failed: {}", e),
                 }
-            } else { eprintln!("\x1b[31m✗\x1b[0m Source required: csr daemon update -n {} -f /path/to/new.ini", args.name); }
+            } else {
+                eprintln!(
+                    "\x1b[31m✗\x1b[0m Source required: csr daemon update -n {} -f /path/to/new.ini",
+                    args.name
+                );
+            }
         }
         DaemonCommand::Rollback(args) => {
             let path = format!("/etc/cesar/services/{}.ini", args.name);
             if let Ok(entries) = fs::read_dir("/etc/cesar/services") {
-                let mut backups: Vec<_> = entries.flatten().filter(|e| {
-                    let n = e.file_name().to_string_lossy().to_string();
-                    n.starts_with(&format!("{}.", args.name)) && n.ends_with(".ini")
-                }).collect();
-                backups.sort_by_key(|e| std::cmp::Reverse(e.metadata().and_then(|m| m.modified()).unwrap_or(std::time::SystemTime::UNIX_EPOCH)));
+                let mut backups: Vec<_> = entries
+                    .flatten()
+                    .filter(|e| {
+                        let n = e.file_name().to_string_lossy().to_string();
+                        n.starts_with(&format!("{}.", args.name)) && n.ends_with(".ini")
+                    })
+                    .collect();
+                backups.sort_by_key(|e| {
+                    std::cmp::Reverse(
+                        e.metadata()
+                            .and_then(|m| m.modified())
+                            .unwrap_or(std::time::SystemTime::UNIX_EPOCH),
+                    )
+                });
                 if let Some(latest) = backups.first() {
                     fs::copy(latest.path(), &path).ok();
-                    println!("\x1b[32m✓\x1b[0m Rolled back to '{}'", latest.file_name().to_string_lossy());
-                } else { eprintln!("\x1b[31m✗\x1b[0m No backups found for '{}'", args.name); }
+                    println!(
+                        "\x1b[32m✓\x1b[0m Rolled back to '{}'",
+                        latest.file_name().to_string_lossy()
+                    );
+                } else {
+                    eprintln!("\x1b[31m✗\x1b[0m No backups found for '{}'", args.name);
+                }
             }
         }
         DaemonCommand::Pin(args) => {
@@ -1114,11 +1612,16 @@ fn handle_daemon(cmd: DaemonCommand, dag: &mut DagEngine, logger: &CesarLogger) 
             fs::create_dir_all("/etc/cesar/pinned").ok();
             if let Some(ref version) = args.version {
                 let _ = atomic_write(&pin_path, version.as_bytes());
-                println!("\x1b[32m✓\x1b[0m Daemon '{}' pinned to '{}'", args.name, version);
+                println!(
+                    "\x1b[32m✓\x1b[0m Daemon '{}' pinned to '{}'",
+                    args.name, version
+                );
             } else if Path::new(&pin_path).exists() {
                 let v = fs::read_to_string(&pin_path).unwrap_or_default();
                 println!("Daemon '{}' pinned to '{}'", args.name, v.trim());
-            } else { println!("Daemon '{}' is not pinned", args.name); }
+            } else {
+                println!("Daemon '{}' is not pinned", args.name);
+            }
         }
         DaemonCommand::Trust(args) => {
             let trust_path = format!("/etc/cesar/trust/{}.key", args.name);
@@ -1130,12 +1633,13 @@ fn handle_daemon(cmd: DaemonCommand, dag: &mut DagEngine, logger: &CesarLogger) 
                 if Path::new(&trust_path).exists() {
                     let key = fs::read_to_string(&trust_path).unwrap_or_default();
                     println!("Trust key for '{}': {}", args.name, key.trim());
-                } else { println!("No trust key for '{}'", args.name); }
+                } else {
+                    println!("No trust key for '{}'", args.name);
+                }
             }
         }
     }
 }
-
 
 fn handle_snapshot(cmd: SnapshotCommand, dag: &mut DagEngine, _logger: &CesarLogger) {
     let snap_dir = "/var/lib/cesar/snapshots";
@@ -1143,20 +1647,39 @@ fn handle_snapshot(cmd: SnapshotCommand, dag: &mut DagEngine, _logger: &CesarLog
         SnapshotCommand::Create(args) => {
             fs::create_dir_all(snap_dir).ok();
             let snap_path = format!("{}/{}", snap_dir, args.name);
-            if Path::new(&snap_path).exists() { eprintln!("\x1b[33m⚠\x1b[0m Snapshot '{}' already exists. Delete first.", args.name); return; }
+            if Path::new(&snap_path).exists() {
+                eprintln!(
+                    "\x1b[33m⚠\x1b[0m Snapshot '{}' already exists. Delete first.",
+                    args.name
+                );
+                return;
+            }
             fs::create_dir_all(&snap_path).ok();
             // Snapshots capture full service state: owner-only access.
             let _ = fs::set_permissions(&snap_path, fs::Permissions::from_mode(0o700));
             load_services_if_empty(dag);
-            let mut data = format!("# Snapshot: {}\n# Created: {}\n", args.name, chrono::Local::now().format("%Y-%m-%d %H:%M:%S"));
+            let mut data = format!(
+                "# Snapshot: {}\n# Created: {}\n",
+                args.name,
+                chrono::Local::now().format("%Y-%m-%d %H:%M:%S")
+            );
             if let Some(desc) = &args.description {
                 data.push_str(&format!("# Description: {}\n", desc));
             }
             data.push('\n');
             for (name, svc) in &dag.services {
                 let state = format!("{:?}", svc.state);
-                let pid = svc.pid.map(|p| p.to_string()).unwrap_or_else(|| "0".to_string());
-                data.push_str(&format!("[\"{}\"]\nstate = \"{}\"\npid = {}\nexec = \"{}\"\n\n", name.replace('"', "'"), state, pid, svc.config.exec.replace('"', "'")));
+                let pid = svc
+                    .pid
+                    .map(|p| p.to_string())
+                    .unwrap_or_else(|| "0".to_string());
+                data.push_str(&format!(
+                    "[\"{}\"]\nstate = \"{}\"\npid = {}\nexec = \"{}\"\n\n",
+                    name.replace('"', "'"),
+                    state,
+                    pid,
+                    svc.config.exec.replace('"', "'")
+                ));
             }
             let _ = atomic_write(&format!("{}/state.toml", snap_path), data.as_bytes());
             let services_dir = format!("{}/services", snap_path);
@@ -1165,23 +1688,48 @@ fn handle_snapshot(cmd: SnapshotCommand, dag: &mut DagEngine, _logger: &CesarLog
             for dir in &["/system/lib/cesar/services", "/etc/cesar/services"] {
                 if let Ok(entries) = fs::read_dir(dir) {
                     for entry in entries.flatten() {
-                        if entry.path().extension().map(|e| e.to_str() == Some("ini")).unwrap_or(false) {
-                            fs::copy(entry.path(), format!("{}/{}", services_dir, entry.file_name().to_string_lossy())).ok();
+                        if entry
+                            .path()
+                            .extension()
+                            .map(|e| e.to_str() == Some("ini"))
+                            .unwrap_or(false)
+                        {
+                            fs::copy(
+                                entry.path(),
+                                format!("{}/{}", services_dir, entry.file_name().to_string_lossy()),
+                            )
+                            .ok();
                         }
                     }
                 }
             }
-            println!("\x1b[32m✓\x1b[0m Snapshot '{}' created ({} services)", args.name, dag.services.len());
+            println!(
+                "\x1b[32m✓\x1b[0m Snapshot '{}' created ({} services)",
+                args.name,
+                dag.services.len()
+            );
         }
         SnapshotCommand::List(_) => {
-            if !Path::new(snap_dir).exists() { println!("No snapshots found"); return; }
+            if !Path::new(snap_dir).exists() {
+                println!("No snapshots found");
+                return;
+            }
             match fs::read_dir(snap_dir) {
                 Ok(entries) => {
                     for entry in entries.flatten() {
                         if entry.path().is_dir() {
                             let name = entry.file_name().to_string_lossy().to_string();
                             let state_file = entry.path().join("state.toml");
-                            let desc = fs::read_to_string(&state_file).map(|c| c.lines().find(|l| l.starts_with("# Created:")).map(|l| l.trim_start_matches("# Created:").trim().to_string()).unwrap_or_default()).unwrap_or_default();
+                            let desc = fs::read_to_string(&state_file)
+                                .map(|c| {
+                                    c.lines()
+                                        .find(|l| l.starts_with("# Created:"))
+                                        .map(|l| {
+                                            l.trim_start_matches("# Created:").trim().to_string()
+                                        })
+                                        .unwrap_or_default()
+                                })
+                                .unwrap_or_default();
                             println!("  {:<20} {}", name, desc);
                         }
                     }
@@ -1191,22 +1739,39 @@ fn handle_snapshot(cmd: SnapshotCommand, dag: &mut DagEngine, _logger: &CesarLog
         }
         SnapshotCommand::Restore(args) => {
             let snap_path = format!("{}/{}", snap_dir, args.name);
-            if !Path::new(&snap_path).exists() { eprintln!("\x1b[31m✗\x1b[0m Snapshot '{}' not found", args.name); return; }
-            if !args.force { eprintln!("\x1b[33m⚠\x1b[0m Use --force to confirm"); return; }
+            if !Path::new(&snap_path).exists() {
+                eprintln!("\x1b[31m✗\x1b[0m Snapshot '{}' not found", args.name);
+                return;
+            }
+            if !args.force {
+                eprintln!("\x1b[33m⚠\x1b[0m Use --force to confirm");
+                return;
+            }
             let services_dir = format!("{}/services", snap_path);
             if let Ok(entries) = fs::read_dir(&services_dir) {
                 let mut restored = 0;
                 for entry in entries.flatten() {
-                    let dest = format!("/etc/cesar/services/{}", entry.file_name().to_string_lossy());
+                    let dest = format!(
+                        "/etc/cesar/services/{}",
+                        entry.file_name().to_string_lossy()
+                    );
                     fs::create_dir_all("/etc/cesar/services").ok();
-                    if fs::copy(entry.path(), &dest).is_ok() { restored += 1; }
+                    if fs::copy(entry.path(), &dest).is_ok() {
+                        restored += 1;
+                    }
                 }
-                println!("\x1b[32m✓\x1b[0m Snapshot '{}' restored ({} services)", args.name, restored);
+                println!(
+                    "\x1b[32m✓\x1b[0m Snapshot '{}' restored ({} services)",
+                    args.name, restored
+                );
             }
         }
         SnapshotCommand::Delete(args) => {
             let snap_path = format!("{}/{}", snap_dir, args.name);
-            if !args.force { eprintln!("\x1b[33m⚠\x1b[0m Use --force to confirm"); return; }
+            if !args.force {
+                eprintln!("\x1b[33m⚠\x1b[0m Use --force to confirm");
+                return;
+            }
             match fs::remove_dir_all(&snap_path) {
                 Ok(()) => println!("\x1b[32m✓\x1b[0m Snapshot '{}' deleted", args.name),
                 Err(e) => eprintln!("\x1b[31m✗\x1b[0m Delete failed: {}", e),
@@ -1217,43 +1782,71 @@ fn handle_snapshot(cmd: SnapshotCommand, dag: &mut DagEngine, _logger: &CesarLog
             let to_path = format!("{}/{}/state.toml", snap_dir, args.to);
             let from = fs::read_to_string(&from_path).unwrap_or_default();
             let to = fs::read_to_string(&to_path).unwrap_or_default();
-            if from == to { println!("\x1b[32m✓\x1b[0m Snapshots are identical"); }
-            else {
+            if from == to {
+                println!("\x1b[32m✓\x1b[0m Snapshots are identical");
+            } else {
                 let f: Vec<&str> = from.lines().collect();
                 let t: Vec<&str> = to.lines().collect();
                 for i in 0..f.len().max(t.len()) {
-                    let a = f.get(i).unwrap_or(&""); let b = t.get(i).unwrap_or(&"");
-                    if a != b { println!("\x1b[31m- {}\x1b[0m ({})", a, args.from); println!("\x1b[32m+ {}\x1b[0m ({})", b, args.to); }
+                    let a = f.get(i).unwrap_or(&"");
+                    let b = t.get(i).unwrap_or(&"");
+                    if a != b {
+                        println!("\x1b[31m- {}\x1b[0m ({})", a, args.from);
+                        println!("\x1b[32m+ {}\x1b[0m ({})", b, args.to);
+                    }
                 }
             }
         }
         SnapshotCommand::Export(args) => {
             let snap_path = format!("{}/{}", snap_dir, args.name);
-            match process::Command::new("tar").args(["czf", &args.output, "-C", snap_dir, &args.name]).status() {
+            match process::Command::new("tar")
+                .args(["czf", &args.output, "-C", snap_dir, &args.name])
+                .status()
+            {
                 Ok(s) if s.success() => println!("\x1b[32m✓\x1b[0m Exported to '{}'", args.output),
                 _ => {
                     fs::create_dir_all(&args.output).ok();
                     if let Ok(entries) = fs::read_dir(&snap_path) {
-                        for entry in entries.flatten() { fs::copy(entry.path(), format!("{}/{}", args.output, entry.file_name().to_string_lossy())).ok(); }
+                        for entry in entries.flatten() {
+                            fs::copy(
+                                entry.path(),
+                                format!("{}/{}", args.output, entry.file_name().to_string_lossy()),
+                            )
+                            .ok();
+                        }
                     }
                     println!("\x1b[32m✓\x1b[0m Exported to '{}'", args.output);
                 }
             }
         }
         SnapshotCommand::Import(args) => {
-            let name = args.name.unwrap_or_else(|| format!("import-{}", chrono::Local::now().format("%Y%m%d_%H%M%S")));
-            let tmp_dir = format!("/tmp/cesar-import-{}", chrono::Local::now().format("%Y%m%d%H%M%S"));
+            let name = args.name.unwrap_or_else(|| {
+                format!("import-{}", chrono::Local::now().format("%Y%m%d_%H%M%S"))
+            });
+            let tmp_dir = format!(
+                "/tmp/cesar-import-{}",
+                chrono::Local::now().format("%Y%m%d%H%M%S")
+            );
             let final_dir = format!("{}/{}", snap_dir, name);
             if fs::create_dir_all(&tmp_dir).is_err() {
-                eprintln!("\x1b[31m✗\x1b[0m Import failed: cannot create '{}'", tmp_dir);
+                eprintln!(
+                    "\x1b[31m✗\x1b[0m Import failed: cannot create '{}'",
+                    tmp_dir
+                );
                 return;
             }
-            match process::Command::new("tar").args(["xzf", &args.file, "-C", &tmp_dir]).status() {
+            match process::Command::new("tar")
+                .args(["xzf", &args.file, "-C", &tmp_dir])
+                .status()
+            {
                 Ok(s) if s.success() => {
                     fs::remove_dir_all(&final_dir).ok();
                     if fs::rename(&tmp_dir, &final_dir).is_err() {
                         let _ = fs::remove_dir_all(&tmp_dir);
-                        eprintln!("\x1b[31m✗\x1b[0m Import failed: cannot move extracted snapshot to '{}'", final_dir);
+                        eprintln!(
+                            "\x1b[31m✗\x1b[0m Import failed: cannot move extracted snapshot to '{}'",
+                            final_dir
+                        );
                         return;
                     }
                     println!("\x1b[32m✓\x1b[0m Imported as '{}'", name);
@@ -1264,7 +1857,14 @@ fn handle_snapshot(cmd: SnapshotCommand, dag: &mut DagEngine, _logger: &CesarLog
                         Ok(entries) => {
                             fs::create_dir_all(&final_dir).ok();
                             for entry in entries.flatten() {
-                                let _ = fs::copy(entry.path(), format!("{}/{}", final_dir, entry.file_name().to_string_lossy()));
+                                let _ = fs::copy(
+                                    entry.path(),
+                                    format!(
+                                        "{}/{}",
+                                        final_dir,
+                                        entry.file_name().to_string_lossy()
+                                    ),
+                                );
                             }
                             println!("\x1b[32m✓\x1b[0m Imported as '{}'", name);
                         }
@@ -1276,7 +1876,6 @@ fn handle_snapshot(cmd: SnapshotCommand, dag: &mut DagEngine, _logger: &CesarLog
     }
 }
 
-
 fn handle_security(cmd: SecurityCommand, dag: &mut DagEngine, _logger: &CesarLogger) {
     match cmd {
         SecurityCommand::Audit(args) => {
@@ -1287,9 +1886,18 @@ fn handle_security(cmd: SecurityCommand, dag: &mut DagEngine, _logger: &CesarLog
                 println!("\n[Service Security]");
                 for (name, svc) in &dag.services {
                     let exec = &svc.config.exec;
-                    if !Path::new(exec).exists() { println!("  \x1b[33m⚠\x1b[0m {}: Exec '{}' not found", name, exec); issues += 1; }
+                    if !Path::new(exec).exists() {
+                        println!("  \x1b[33m⚠\x1b[0m {}: Exec '{}' not found", name, exec);
+                        issues += 1;
+                    }
                     for dep in &svc.config.requires {
-                        if !dag.services.contains_key(dep) { println!("  \x1b[31m✗\x1b[0m {}: Depends on undefined service '{}'", name, dep); issues += 1; }
+                        if !dag.services.contains_key(dep) {
+                            println!(
+                                "  \x1b[31m✗\x1b[0m {}: Depends on undefined service '{}'",
+                                name, dep
+                            );
+                            issues += 1;
+                        }
                     }
                 }
             }
@@ -1300,10 +1908,18 @@ fn handle_security(cmd: SecurityCommand, dag: &mut DagEngine, _logger: &CesarLog
                         for entry in entries.flatten() {
                             let path = entry.path();
                             if path.extension().and_then(|e| e.to_str()) == Some("ini")
-                                && let Ok(meta) = fs::metadata(&path) {
-                                    use std::os::linux::fs::MetadataExt;
-                                    if meta.st_uid() != 0 { println!("  \x1b[33m⚠\x1b[0m {}: Not root-owned (uid={})", path.display(), meta.st_uid()); issues += 1; }
+                                && let Ok(meta) = fs::metadata(&path)
+                            {
+                                use std::os::linux::fs::MetadataExt;
+                                if meta.st_uid() != 0 {
+                                    println!(
+                                        "  \x1b[33m⚠\x1b[0m {}: Not root-owned (uid={})",
+                                        path.display(),
+                                        meta.st_uid()
+                                    );
+                                    issues += 1;
                                 }
+                            }
                         }
                     }
                 }
@@ -1315,32 +1931,51 @@ fn handle_security(cmd: SecurityCommand, dag: &mut DagEngine, _logger: &CesarLog
                     println!("  Listening TCP sockets: {}", listening.len());
                 }
             }
-            if issues == 0 { println!("\n\x1b[32m✓ No security issues found\x1b[0m"); }
-            else { println!("\n\x1b[33m⚠ {} issue(s) found\x1b[0m", issues); }
+            if issues == 0 {
+                println!("\n\x1b[32m✓ No security issues found\x1b[0m");
+            } else {
+                println!("\n\x1b[33m⚠ {} issue(s) found\x1b[0m", issues);
+            }
         }
         SecurityCommand::Scan(_args) => {
             println!("Security Scan\n{}", "─".repeat(40));
             if let Ok(content) = fs::read_to_string("/proc/self/status")
-                && let Some(line) = content.lines().find(|l| l.starts_with("Seccomp:")) {
-                    let mode = line.split_whitespace().last().unwrap_or("0");
-                    if mode == "0" { println!("  \x1b[33m⚠\x1b[0m Seccomp not active"); }
-                    else { println!("  \x1b[32m✓\x1b[0m Seccomp active (mode={})", mode); }
+                && let Some(line) = content.lines().find(|l| l.starts_with("Seccomp:"))
+            {
+                let mode = line.split_whitespace().last().unwrap_or("0");
+                if mode == "0" {
+                    println!("  \x1b[33m⚠\x1b[0m Seccomp not active");
+                } else {
+                    println!("  \x1b[32m✓\x1b[0m Seccomp active (mode={})", mode);
                 }
+            }
             if let Ok(meta) = fs::metadata("/etc/cesar") {
                 use std::os::linux::fs::MetadataExt;
                 let mode = meta.st_mode();
-                if mode & 0o022 != 0 { println!("  \x1b[33m⚠\x1b[0m /etc/cesar is world-accessible ({:o})", mode & 0o7777); }
-                else { println!("  \x1b[32m✓\x1b[0m /etc/cesar permissions OK"); }
+                if mode & 0o022 != 0 {
+                    println!(
+                        "  \x1b[33m⚠\x1b[0m /etc/cesar is world-accessible ({:o})",
+                        mode & 0o7777
+                    );
+                } else {
+                    println!("  \x1b[32m✓\x1b[0m /etc/cesar permissions OK");
+                }
             }
             println!("\x1b[32m✓ Scan complete\x1b[0m");
         }
         SecurityCommand::Policy(args) => {
             if args.show {
                 let policy_path = "/etc/cesar/security.policy";
-                if Path::new(policy_path).exists() { println!("{}", fs::read_to_string(policy_path).unwrap_or_default()); }
-                else { println!("No policy configured. Default: standard"); }
+                if Path::new(policy_path).exists() {
+                    println!("{}", fs::read_to_string(policy_path).unwrap_or_default());
+                } else {
+                    println!("No policy configured. Default: standard");
+                }
             } else if let Some(ref p) = args.set {
-                let _ = atomic_write("/etc/cesar/security.policy", format!("policy = {}\n", p).as_bytes());
+                let _ = atomic_write(
+                    "/etc/cesar/security.policy",
+                    format!("policy = {}\n", p).as_bytes(),
+                );
                 println!("\x1b[32m✓\x1b[0m Policy set to '{}'", p);
             }
         }
@@ -1349,12 +1984,18 @@ fn handle_security(cmd: SecurityCommand, dag: &mut DagEngine, _logger: &CesarLog
                 let pid = args.pid.unwrap_or(1);
                 if let Ok(content) = fs::read_to_string(format!("/proc/{}/status", pid)) {
                     for line in content.lines() {
-                        if line.starts_with("Cap") { println!("  {}", line); }
+                        if line.starts_with("Cap") {
+                            println!("  {}", line);
+                        }
                     }
-                } else { eprintln!("\x1b[31m✗\x1b[0m Cannot read capabilities for PID {}", pid); }
+                } else {
+                    eprintln!("\x1b[31m✗\x1b[0m Cannot read capabilities for PID {}", pid);
+                }
             }
             if args.add.is_some() || args.drop.is_some() {
-                eprintln!("\x1b[33m⚠\x1b[0m cap add/drop are not implemented yet (requires capset plumbing)");
+                eprintln!(
+                    "\x1b[33m⚠\x1b[0m cap add/drop are not implemented yet (requires capset plumbing)"
+                );
             }
         }
         SecurityCommand::Seccomp(args) => {
@@ -1367,12 +2008,15 @@ fn handle_security(cmd: SecurityCommand, dag: &mut DagEngine, _logger: &CesarLog
             }
             println!("Seccomp status:");
             if let Ok(content) = fs::read_to_string("/proc/self/status")
-                && let Some(line) = content.lines().find(|l| l.starts_with("Seccomp:")) {
-                    println!("  {}", line);
-                }
+                && let Some(line) = content.lines().find(|l| l.starts_with("Seccomp:"))
+            {
+                println!("  {}", line);
+            }
         }
         SecurityCommand::Sandbox(args) => {
-            if args.list { println!("Active sandboxes: (none)"); }
+            if args.list {
+                println!("Active sandboxes: (none)");
+            }
             if args.create.is_some() || args.destroy.is_some() || args.info.is_some() {
                 eprintln!("\x1b[33m⚠\x1b[0m sandbox create/destroy/info are not implemented yet");
             }
@@ -1381,16 +2025,21 @@ fn handle_security(cmd: SecurityCommand, dag: &mut DagEngine, _logger: &CesarLog
             if args.keys {
                 let trust_dir = "/etc/cesar/trust";
                 if let Ok(entries) = fs::read_dir(trust_dir) {
-                    for entry in entries.flatten() { println!("  {}", entry.file_name().to_string_lossy()); }
-                } else { println!("No trust keys"); }
+                    for entry in entries.flatten() {
+                        println!("  {}", entry.file_name().to_string_lossy());
+                    }
+                } else {
+                    println!("No trust keys");
+                }
             }
             if args.add.is_some() || args.remove.is_some() || args.verify {
-                eprintln!("\x1b[33m⚠\x1b[0m trust add/remove/verify are not implemented yet (keyring integration pending)");
+                eprintln!(
+                    "\x1b[33m⚠\x1b[0m trust add/remove/verify are not implemented yet (keyring integration pending)"
+                );
             }
         }
     }
 }
-
 
 fn handle_query(cmd: QueryCommand, dag: &mut DagEngine, logger: &CesarLogger) {
     match cmd {
@@ -1399,39 +2048,78 @@ fn handle_query(cmd: QueryCommand, dag: &mut DagEngine, logger: &CesarLogger) {
             if let Some(ref name) = args.name {
                 if let Some(svc) = dag.services.get(name) {
                     if args.json {
-                        println!("{}", serde_json::json!({"name": name, "state": svc.state.to_string(), "pid": svc.pid}));
+                        println!(
+                            "{}",
+                            serde_json::json!({"name": name, "state": svc.state.to_string(), "pid": svc.pid})
+                        );
+                    } else {
+                        println!(
+                            "{}: {} [{}]",
+                            name,
+                            svc.state,
+                            svc.pid.map_or("-".to_string(), |p| p.to_string())
+                        );
                     }
-                    else { println!("{}: {} [{}]", name, svc.state, svc.pid.map_or("-".to_string(), |p| p.to_string())); }
                 }
             } else {
                 let count = dag.services.len();
-                let running = dag.services.values().filter(|s| matches!(s.state, ServiceState::Running)).count();
+                let running = dag
+                    .services
+                    .values()
+                    .filter(|s| matches!(s.state, ServiceState::Running))
+                    .count();
                 println!("{} services ({} running)", count, running);
             }
         }
         QueryCommand::Boot(args) => {
             let content = logger.read_log();
-            if args.time { for line in content.lines() { if line.contains("Boot") { println!("{}", line.trim_start_matches('#').trim()); } } }
-            else if args.errors { for line in content.lines() { if line.contains("CRITICAL") { println!("{}", line.trim_start_matches('>').trim()); } } }
-            else { println!("Boot: OK"); }
+            if args.time {
+                for line in content.lines() {
+                    if line.contains("Boot") {
+                        println!("{}", line.trim_start_matches('#').trim());
+                    }
+                }
+            } else if args.errors {
+                for line in content.lines() {
+                    if line.contains("CRITICAL") {
+                        println!("{}", line.trim_start_matches('>').trim());
+                    }
+                }
+            } else {
+                println!("Boot: OK");
+            }
         }
         QueryCommand::System(_args) => {
             println!("System: Cudane / Cesar v{}", env!("CARGO_PKG_VERSION"));
             let hostname = crate::hostname();
             println!("Hostname: {}", hostname);
-            if let Ok(v) = fs::read_to_string("/proc/version") { println!("Kernel: {}", v.trim()); }
-            if let Ok(u) = fs::read_to_string("/proc/uptime") { println!("Uptime: {}s", u.split_whitespace().next().unwrap_or("0")); }
+            if let Ok(v) = fs::read_to_string("/proc/version") {
+                println!("Kernel: {}", v.trim());
+            }
+            if let Ok(u) = fs::read_to_string("/proc/uptime") {
+                println!("Uptime: {}s", u.split_whitespace().next().unwrap_or("0"));
+            }
         }
         QueryCommand::Dependency(args) => {
             load_services_if_empty(dag);
             let _ = dag.build_dependency_graph();
             if let Some(ref name) = args.name {
                 if let Some(svc) = dag.services.get(name) {
-                    println!("{} requires: {}", name, if svc.config.requires.is_empty() { "none".to_string() } else { svc.config.requires.join(", ") });
+                    println!(
+                        "{} requires: {}",
+                        name,
+                        if svc.config.requires.is_empty() {
+                            "none".to_string()
+                        } else {
+                            svc.config.requires.join(", ")
+                        }
+                    );
                 }
             } else {
                 let order = dag.get_boot_order();
-                for (i, level) in order.iter().enumerate() { println!("  [{}] {}", i + 1, level.join(", ")); }
+                for (i, level) in order.iter().enumerate() {
+                    println!("  [{}] {}", i + 1, level.join(", "));
+                }
             }
         }
         QueryCommand::History(args) => {
@@ -1439,32 +2127,56 @@ fn handle_query(cmd: QueryCommand, dag: &mut DagEngine, logger: &CesarLogger) {
             let lines: Vec<&str> = content.lines().collect();
             let start = lines.len().saturating_sub(args.limit);
             for line in &lines[start..] {
-                if line.contains("EVENT:") || line.contains("INFO:") { println!("{}", line.trim_start_matches('>').trim()); }
+                if line.contains("EVENT:") || line.contains("INFO:") {
+                    println!("{}", line.trim_start_matches('>').trim());
+                }
             }
         }
         QueryCommand::Resource(_args) => {
             if let Ok(meminfo) = fs::read_to_string("/proc/meminfo") {
-                for line in meminfo.lines().take(3) { println!("  {}", line); }
+                for line in meminfo.lines().take(3) {
+                    println!("  {}", line);
+                }
             }
         }
         QueryCommand::Health(_args) => {
             load_services_if_empty(dag);
             let total = dag.services.len();
-            let running = dag.services.values().filter(|s| matches!(s.state, ServiceState::Running)).count();
-            let failed = dag.services.values().filter(|s| matches!(s.state, ServiceState::Failed)).count();
-            if failed == 0 { println!("\x1b[32m✓\x1b[0m Health: OK ({}/{} running)", running, total); }
-            else { println!("\x1b[31m✗\x1b[0m Health: DEGRADED ({}/{} running, {} failed)", running, total, failed); }
+            let running = dag
+                .services
+                .values()
+                .filter(|s| matches!(s.state, ServiceState::Running))
+                .count();
+            let failed = dag
+                .services
+                .values()
+                .filter(|s| matches!(s.state, ServiceState::Failed))
+                .count();
+            if failed == 0 {
+                println!(
+                    "\x1b[32m✓\x1b[0m Health: OK ({}/{} running)",
+                    running, total
+                );
+            } else {
+                println!(
+                    "\x1b[31m✗\x1b[0m Health: DEGRADED ({}/{} running, {} failed)",
+                    running, total, failed
+                );
+            }
         }
     }
 }
 
-
 fn handle_debug(cmd: DebugCommand, _dag: &mut DagEngine, _logger: &CesarLogger) {
     match cmd {
         DebugCommand::Trace(args) => {
-            let ret = process::Command::new("strace").args(["-p", &args.pid.to_string()]).status();
+            let ret = process::Command::new("strace")
+                .args(["-p", &args.pid.to_string()])
+                .status();
             match ret {
-                Ok(s) => { let _ = s; }
+                Ok(s) => {
+                    let _ = s;
+                }
                 Err(e) => {
                     eprintln!("\x1b[31m✗\x1b[0m strace not found: {}", e);
                     eprintln!("  Install strace: apt install strace / pacman -S strace");
@@ -1478,11 +2190,17 @@ fn handle_debug(cmd: DebugCommand, _dag: &mut DagEngine, _logger: &CesarLogger) 
         DebugCommand::Strace(args) => {
             let mut cmd = process::Command::new("strace");
             cmd.arg("-p").arg(args.pid.to_string());
-            if let Some(ref filter) = args.filter { cmd.arg("-e").arg(filter); }
-            if let Some(ref output) = args.output { cmd.arg("-o").arg(output); }
+            if let Some(ref filter) = args.filter {
+                cmd.arg("-e").arg(filter);
+            }
+            if let Some(ref output) = args.output {
+                cmd.arg("-o").arg(output);
+            }
             let ret = cmd.status();
             match ret {
-                Ok(s) => { let _ = s; }
+                Ok(s) => {
+                    let _ = s;
+                }
                 Err(e) => {
                     eprintln!("\x1b[31m✗\x1b[0m strace not found: {}", e);
                     eprintln!("  Install: apt install strace");
@@ -1491,25 +2209,57 @@ fn handle_debug(cmd: DebugCommand, _dag: &mut DagEngine, _logger: &CesarLogger) 
         }
         DebugCommand::Dump(_args) => {
             println!("System dump:");
-            if let Ok(m) = fs::read_to_string("/proc/meminfo") { for line in m.lines().take(5) { println!("  {}", line); } }
-            if let Ok(l) = fs::read_to_string("/proc/loadavg") { println!("  Load: {}", l.trim()); }
-            if let Ok(s) = fs::read_to_string("/proc/stat") && let Some(cpu) = s.lines().next() { println!("  CPU: {}", cpu); }
+            if let Ok(m) = fs::read_to_string("/proc/meminfo") {
+                for line in m.lines().take(5) {
+                    println!("  {}", line);
+                }
+            }
+            if let Ok(l) = fs::read_to_string("/proc/loadavg") {
+                println!("  Load: {}", l.trim());
+            }
+            if let Ok(s) = fs::read_to_string("/proc/stat")
+                && let Some(cpu) = s.lines().next()
+            {
+                println!("  CPU: {}", cpu);
+            }
         }
         DebugCommand::Core(args) => {
-            let ret = process::Command::new("gdb").args(["-batch", "-ex", "thread apply all bt", &format!("--pid={}", args.pid)]).status();
+            let ret = process::Command::new("gdb")
+                .args([
+                    "-batch",
+                    "-ex",
+                    "thread apply all bt",
+                    &format!("--pid={}", args.pid),
+                ])
+                .status();
             match ret {
                 Ok(s) if s.success() => {}
                 _ => {
-                    eprintln!("\x1b[33m⚠\x1b[0m gdb not available or failed for PID {}", args.pid);
+                    eprintln!(
+                        "\x1b[33m⚠\x1b[0m gdb not available or failed for PID {}",
+                        args.pid
+                    );
                     eprintln!("  Install: apt install gdb");
                     if let Ok(status) = fs::read_to_string(format!("/proc/{}/status", args.pid)) {
-                        for line in status.lines().take(10) { println!("  {}", line); }
+                        for line in status.lines().take(10) {
+                            println!("  {}", line);
+                        }
                     }
                 }
             }
         }
         DebugCommand::Profile(args) => {
-            let ret = process::Command::new("perf").args(["record", "-p", &args.pid.to_string(), "-g", "--", "sleep", &args.duration.to_string()]).status();
+            let ret = process::Command::new("perf")
+                .args([
+                    "record",
+                    "-p",
+                    &args.pid.to_string(),
+                    "-g",
+                    "--",
+                    "sleep",
+                    &args.duration.to_string(),
+                ])
+                .status();
             match ret {
                 Ok(s) if s.success() => println!("\x1b[32m✓\x1b[0m Profile recorded (perf.data)"),
                 _ => {
@@ -1517,25 +2267,45 @@ fn handle_debug(cmd: DebugCommand, _dag: &mut DagEngine, _logger: &CesarLogger) 
                     eprintln!("  Install: apt install linux-tools-common");
                     eprintln!("  Alternative: cat /proc/{}/status", args.pid);
                     if let Ok(status) = fs::read_to_string(format!("/proc/{}/status", args.pid)) {
-                        for line in status.lines() { println!("  {}", line); }
+                        for line in status.lines() {
+                            println!("  {}", line);
+                        }
                     }
                 }
             }
             let _ = args;
         }
         DebugCommand::Stress(args) => {
-            println!("Stress test: cpu={}, memory={}, io={}, duration={}s", args.cpu, args.memory, args.io, args.duration);
+            println!(
+                "Stress test: cpu={}, memory={}, io={}, duration={}s",
+                args.cpu, args.memory, args.io, args.duration
+            );
             if args.cpu {
-                let _ = process::Command::new("stress").args(["--cpu", "4", "--timeout", &args.duration.to_string()]).status();
+                let _ = process::Command::new("stress")
+                    .args(["--cpu", "4", "--timeout", &args.duration.to_string()])
+                    .status();
             }
             if args.memory {
-                let _ = process::Command::new("stress").args(["--vm", "2", "--vm-bytes", "256M", "--timeout", &args.duration.to_string()]).status();
+                let _ = process::Command::new("stress")
+                    .args([
+                        "--vm",
+                        "2",
+                        "--vm-bytes",
+                        "256M",
+                        "--timeout",
+                        &args.duration.to_string(),
+                    ])
+                    .status();
             }
             if args.io {
-                let _ = process::Command::new("stress").args(["--io", "4", "--timeout", &args.duration.to_string()]).status();
+                let _ = process::Command::new("stress")
+                    .args(["--io", "4", "--timeout", &args.duration.to_string()])
+                    .status();
             }
             if !args.cpu && !args.memory && !args.io {
-                eprintln!("\x1b[33m⚠\x1b[0m No stress type selected. Use -c (cpu), -m (memory), -i (io)");
+                eprintln!(
+                    "\x1b[33m⚠\x1b[0m No stress type selected. Use -c (cpu), -m (memory), -i (io)"
+                );
                 eprintln!("  Install stress: apt install stress / pacman -S stress");
             }
         }
@@ -1543,36 +2313,49 @@ fn handle_debug(cmd: DebugCommand, _dag: &mut DagEngine, _logger: &CesarLogger) 
             let mut passed = 0;
             let mut failed = 0;
 
-
             print!("Test config parsing... ");
             match config::parse_cesar_config("/system/lib/cesar/services/network.ini") {
-                Ok(_) => { println!("\x1b[32m✓\x1b[0m"); passed += 1; }
-                Err(e) => { println!("\x1b[33m⚠\x1b[0m (no config: {})", e); }
+                Ok(_) => {
+                    println!("\x1b[32m✓\x1b[0m");
+                    passed += 1;
+                }
+                Err(e) => {
+                    println!("\x1b[33m⚠\x1b[0m (no config: {})", e);
+                }
             }
-
 
             print!("Test DAG engine... ");
             let mut test_dag = DagEngine::new();
             test_dag.add_service(crate::service::ServiceConfig::new("test-a", "/bin/true"));
             test_dag.add_service(crate::service::ServiceConfig::new("test-b", "/bin/true"));
             match test_dag.build_dependency_graph() {
-                Ok(()) => { println!("\x1b[32m✓\x1b[0m"); passed += 1; }
-                Err(e) => { println!("\x1b[31m✗\x1b[0m {}", e); failed += 1; }
+                Ok(()) => {
+                    println!("\x1b[32m✓\x1b[0m");
+                    passed += 1;
+                }
+                Err(e) => {
+                    println!("\x1b[31m✗\x1b[0m {}", e);
+                    failed += 1;
+                }
             }
-
 
             print!("Test service directory... ");
             let dirs = ["/system/lib/cesar/services", "/etc/cesar/services"];
             let mut found = false;
             for dir in &dirs {
-                if Path::new(dir).exists() && fs::read_dir(dir).map(|e| e.count() > 0).unwrap_or(false) {
+                if Path::new(dir).exists()
+                    && fs::read_dir(dir).map(|e| e.count() > 0).unwrap_or(false)
+                {
                     found = true;
                     break;
                 }
             }
-            if found { println!("\x1b[32m✓\x1b[0m"); passed += 1; }
-            else { println!("\x1b[33m⚠\x1b[0m (no service dirs found)"); }
-
+            if found {
+                println!("\x1b[32m✓\x1b[0m");
+                passed += 1;
+            } else {
+                println!("\x1b[33m⚠\x1b[0m (no service dirs found)");
+            }
 
             print!("Test logger... ");
             // Self-test writes go to a throwaway file, never /var/log/cesar.md.
@@ -1584,16 +2367,22 @@ fn handle_debug(cmd: DebugCommand, _dag: &mut DagEngine, _logger: &CesarLogger) 
             let logger = CesarLogger::at_path(&test_log);
             logger.log_info("test", "self-test message");
             let log = logger.read_log();
-            if log.contains("self-test message") { println!("\x1b[32m✓\x1b[0m"); passed += 1; }
-            else { println!("\x1b[31m✗\x1b[0m"); failed += 1; }
+            if log.contains("self-test message") {
+                println!("\x1b[32m✓\x1b[0m");
+                passed += 1;
+            } else {
+                println!("\x1b[31m✗\x1b[0m");
+                failed += 1;
+            }
             let _ = fs::remove_file(&test_log);
 
             println!("\n{} passed, {} failed", passed, failed);
-            if failed > 0 { std::process::exit(1); }
+            if failed > 0 {
+                std::process::exit(1);
+            }
         }
     }
 }
-
 
 fn handle_self(cmd: SelfCommand, _logger: &CesarLogger) {
     let version = env!("CARGO_PKG_VERSION");
@@ -1602,9 +2391,17 @@ fn handle_self(cmd: SelfCommand, _logger: &CesarLogger) {
             let is_init = unsafe { libc::getpid() == 1 };
             println!("Cesar Init System v{}", version);
             println!("  PID:     {}", unsafe { libc::getpid() });
-            println!("  Role:    {}", if is_init { "PID 1 (Init)" } else { "CLI Tool" });
+            println!(
+                "  Role:    {}",
+                if is_init { "PID 1 (Init)" } else { "CLI Tool" }
+            );
             let uptime = fs::read_to_string("/proc/uptime").unwrap_or_default();
-            let secs: f64 = uptime.split_whitespace().next().unwrap_or("0").parse().unwrap_or(0.0);
+            let secs: f64 = uptime
+                .split_whitespace()
+                .next()
+                .unwrap_or("0")
+                .parse()
+                .unwrap_or(0.0);
             println!("  Uptime:  {:.0}s", secs);
             if args.verbose {
                 println!("  Binary:  /system/bin/csr");
@@ -1627,27 +2424,47 @@ fn handle_self(cmd: SelfCommand, _logger: &CesarLogger) {
             }
         }
         SelfCommand::Version(args) => {
-            if args.json { println!("{{\"name\":\"cesar\",\"version\":\"{}\"}}", version); }
-            else if args.short { println!("{}", version); }
-            else { println!("Cesar v{}\nRuntime Init System for Cudane\nLicense: MIT", version); }
+            if args.json {
+                println!("{{\"name\":\"cesar\",\"version\":\"{}\"}}", version);
+            } else if args.short {
+                println!("{}", version);
+            } else {
+                println!(
+                    "Cesar v{}\nRuntime Init System for Cudane\nLicense: MIT",
+                    version
+                );
+            }
         }
         SelfCommand::Completions(args) => {
             let shell = args.shell.unwrap_or_else(|| {
-                std::env::var("SHELL").unwrap_or_default()
-                    .split('/').next_back().unwrap_or("bash").to_string()
+                std::env::var("SHELL")
+                    .unwrap_or_default()
+                    .split('/')
+                    .next_back()
+                    .unwrap_or("bash")
+                    .to_string()
             });
             println!("# Cesar completions for {}", shell);
-            println!("# Source this file: source <(csr self completions -s {})", shell);
+            println!(
+                "# Source this file: source <(csr self completions -s {})",
+                shell
+            );
             match shell.as_str() {
                 "bash" => {
-                    println!("_cs() {{ local cur prev words cword; _init_completion || return; COMPREPLY=(); if [[ $cword -eq 1 ]]; then COMPREPLY=($(compgen -W \"service system config log socket daemon snapshot security query debug self plugin theme tui\" -- $cur)); fi; }}; complete -F _cs csr");
+                    println!(
+                        "_cs() {{ local cur prev words cword; _init_completion || return; COMPREPLY=(); if [[ $cword -eq 1 ]]; then COMPREPLY=($(compgen -W \"service system config log socket daemon snapshot security query debug self plugin theme tui\" -- $cur)); fi; }}; complete -F _cs csr"
+                    );
                 }
                 "zsh" => {
                     println!("#compdef csr");
-                    println!("_cs() {{ _arguments '1:command:(service system config log socket daemon snapshot security query debug self plugin theme tui)' }}; compdef _cs csr");
+                    println!(
+                        "_cs() {{ _arguments '1:command:(service system config log socket daemon snapshot security query debug self plugin theme tui)' }}; compdef _cs csr"
+                    );
                 }
                 "fish" => {
-                    println!("complete -c csr -f -a '(service system config log socket daemon snapshot security query debug self plugin theme tui)'");
+                    println!(
+                        "complete -c csr -f -a '(service system config log socket daemon snapshot security query debug self plugin theme tui)'"
+                    );
                 }
                 _ => println!("# Shell '{}' not fully supported. Basic completion:", shell),
             }
@@ -1660,10 +2477,8 @@ fn handle_self(cmd: SelfCommand, _logger: &CesarLogger) {
                 println!("  Log file:             /var/log/cesar.md");
             }
         }
-
     }
 }
-
 
 /// Atomically replace `path` with `bytes`: temp file in the same
 /// directory, fsync, rename over the destination.
@@ -1774,8 +2589,7 @@ fn freeze_thaw_cgroup(v1_state: &str, v2_value: &str) -> Result<&'static str, St
 /// planting a file in /etc/cesar/plugins and waiting for it to be run.
 fn validate_plugin_file(path: &str) -> Result<(), String> {
     use std::os::linux::fs::MetadataExt;
-    let meta = fs::metadata(path)
-        .map_err(|e| format!("cannot stat '{}': {}", path, e))?;
+    let meta = fs::metadata(path).map_err(|e| format!("cannot stat '{}': {}", path, e))?;
     if !meta.is_file() {
         return Err(format!("'{}' is not a regular file", path));
     }
@@ -1812,7 +2626,9 @@ fn run_plugin_argv(entry_path: &str, template: &str, args: &[String]) -> Result<
     };
     let program = program.clone();
 
-    let parent = Path::new(entry_path).parent().unwrap_or_else(|| Path::new("."));
+    let parent = Path::new(entry_path)
+        .parent()
+        .unwrap_or_else(|| Path::new("."));
     let output = process::Command::new(&program)
         .args(&argv[1..])
         .current_dir(parent)
@@ -1848,7 +2664,9 @@ fn convert_systemd_unit(path: &Path, name: &str) -> Result<String, String> {
             section = t[1..t.len() - 1].to_lowercase();
             continue;
         }
-        let Some((key, value)) = t.split_once('=') else { continue };
+        let Some((key, value)) = t.split_once('=') else {
+            continue;
+        };
         let key = key.trim();
         let value = value.trim().trim_matches('"');
         match section.as_str() {
@@ -1946,14 +2764,23 @@ fn handle_service(cmd: ServiceCommand, dag: &mut DagEngine, logger: &CesarLogger
             load_services_if_empty(dag);
             if let Some(svc) = dag.services.get(&args.name) {
                 if !svc.is_ready() {
-                    eprintln!("\x1b[33m⚠\x1b[0m Service '{}' is in a transitional state ({})", args.name, svc.state);
+                    eprintln!(
+                        "\x1b[33m⚠\x1b[0m Service '{}' is in a transitional state ({})",
+                        args.name, svc.state
+                    );
                     return;
                 }
                 if !svc.config.requires.is_empty() && !dag.all_deps_satisfied(&args.name) {
                     if args.force {
-                        eprintln!("\x1b[33m⚠\x1b[0m Starting '{}' despite unsatisfied dependencies (--force)", args.name);
+                        eprintln!(
+                            "\x1b[33m⚠\x1b[0m Starting '{}' despite unsatisfied dependencies (--force)",
+                            args.name
+                        );
                     } else {
-                        eprintln!("\x1b[33m⚠\x1b[0m Dependencies not satisfied for '{}'", args.name);
+                        eprintln!(
+                            "\x1b[33m⚠\x1b[0m Dependencies not satisfied for '{}'",
+                            args.name
+                        );
                         eprintln!("  Fix: Start dependency services first, or use --force");
                         return;
                     }
@@ -1963,7 +2790,13 @@ fn handle_service(cmd: ServiceCommand, dag: &mut DagEngine, logger: &CesarLogger
                 let env_vars = svc.config.environment.clone();
                 let work_dir = svc.config.working_directory.clone();
                 logger.log_service_event(&name, "Service starting");
-                match cprocess::spawn_service_env(&name, &exec, &env_vars, work_dir.as_deref(), logger) {
+                match cprocess::spawn_service_env(
+                    &name,
+                    &exec,
+                    &env_vars,
+                    work_dir.as_deref(),
+                    logger,
+                ) {
                     Ok(pid) => {
                         dag.mark_running(&name, pid);
                         logger.log_service_event(&name, &format!("Service started (PID {})", pid));
@@ -2013,7 +2846,10 @@ fn handle_service(cmd: ServiceCommand, dag: &mut DagEngine, logger: &CesarLogger
             if let Some(svc) = dag.services.get(&args.name) {
                 if let Some(pid) = svc.pid {
                     dag.mark_stopping(&args.name);
-                    logger.log_service_event(&args.name, &format!("Restart: sending SIGTERM (PID {})", pid));
+                    logger.log_service_event(
+                        &args.name,
+                        &format!("Restart: sending SIGTERM (PID {})", pid),
+                    );
                     let _ = cprocess::terminate_group(pid, std::time::Duration::from_secs(10));
                     dag.mark_stopped(&args.name);
                 }
@@ -2022,11 +2858,21 @@ fn handle_service(cmd: ServiceCommand, dag: &mut DagEngine, logger: &CesarLogger
                 let work_dir = dag.services[&args.name].config.working_directory.clone();
                 let name = args.name.clone();
                 logger.log_service_event(&name, "Service starting (restart)");
-                match cprocess::spawn_service_env(&name, &exec, &env_vars, work_dir.as_deref(), logger) {
+                match cprocess::spawn_service_env(
+                    &name,
+                    &exec,
+                    &env_vars,
+                    work_dir.as_deref(),
+                    logger,
+                ) {
                     Ok(pid) => {
                         dag.mark_running(&name, pid);
-                        logger.log_service_event(&name, &format!("Service restarted (PID {})", pid));
-                        println!("\x1b[32m✓\x1b[0m Service '{}' restarted (PID {})", name, pid);
+                        logger
+                            .log_service_event(&name, &format!("Service restarted (PID {})", pid));
+                        println!(
+                            "\x1b[32m✓\x1b[0m Service '{}' restarted (PID {})",
+                            name, pid
+                        );
                     }
                     Err(e) => {
                         dag.mark_failed(&name);
@@ -2051,24 +2897,39 @@ fn handle_service(cmd: ServiceCommand, dag: &mut DagEngine, logger: &CesarLogger
                             _ => Signal::SIGHUP,
                         };
                         dag.mark_reloading(&args.name);
-                        logger.log_service_event(&args.name, &format!("Service reloading (signal: {})", sig as i32));
+                        logger.log_service_event(
+                            &args.name,
+                            &format!("Service reloading (signal: {})", sig as i32),
+                        );
                         match cprocess::kill_service(pid, sig as i32) {
                             Ok(()) => {
                                 dag.mark_running(&args.name, pid);
                                 logger.log_service_event(&args.name, "Service reloaded");
-                                println!("\x1b[32m✓\x1b[0m Reload signal ({}) sent to '{}' (PID {})", sig as i32, args.name, pid);
+                                println!(
+                                    "\x1b[32m✓\x1b[0m Reload signal ({}) sent to '{}' (PID {})",
+                                    sig as i32, args.name, pid
+                                );
                             }
                             Err(e) => {
                                 dag.mark_running(&args.name, pid);
-                                eprintln!("\x1b[31m✗\x1b[0m Failed to send signal to '{}': {}", args.name, e);
+                                eprintln!(
+                                    "\x1b[31m✗\x1b[0m Failed to send signal to '{}': {}",
+                                    args.name, e
+                                );
                             }
                         }
                     } else {
-                        eprintln!("\x1b[31m✗\x1b[0m Service '{}' process {} is not alive", args.name, pid);
+                        eprintln!(
+                            "\x1b[31m✗\x1b[0m Service '{}' process {} is not alive",
+                            args.name, pid
+                        );
                         dag.mark_stopped(&args.name);
                     }
                 } else {
-                    println!("\x1b[33m⚠\x1b[0m Service '{}' is not running (no PID)", args.name);
+                    println!(
+                        "\x1b[33m⚠\x1b[0m Service '{}' is not running (no PID)",
+                        args.name
+                    );
                 }
             } else {
                 eprintln!("\x1b[31m✗\x1b[0m Service '{}' not found", args.name);
@@ -2088,14 +2949,20 @@ fn handle_service(cmd: ServiceCommand, dag: &mut DagEngine, logger: &CesarLogger
                     };
                     match cprocess::kill_service_group(pid, sig as i32) {
                         Ok(()) => {
-                            println!("\x1b[32m✓\x1b[0m Signal {} sent to '{}' (PID {})", sig as i32, args.name, pid);
+                            println!(
+                                "\x1b[32m✓\x1b[0m Signal {} sent to '{}' (PID {})",
+                                sig as i32, args.name, pid
+                            );
                             if sig == Signal::SIGKILL || sig == Signal::SIGTERM {
                                 if sig == Signal::SIGTERM {
-                                    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+                                    let deadline = std::time::Instant::now()
+                                        + std::time::Duration::from_secs(5);
                                     while std::time::Instant::now() < deadline
-                                        && cprocess::check_process(pid) == cprocess::ProcessStatus::Alive {
-                                            std::thread::sleep(std::time::Duration::from_millis(100));
-                                        }
+                                        && cprocess::check_process(pid)
+                                            == cprocess::ProcessStatus::Alive
+                                    {
+                                        std::thread::sleep(std::time::Duration::from_millis(100));
+                                    }
                                 }
                                 dag.mark_stopped(&args.name);
                             }
@@ -2103,7 +2970,10 @@ fn handle_service(cmd: ServiceCommand, dag: &mut DagEngine, logger: &CesarLogger
                         Err(e) => eprintln!("\x1b[31m✗\x1b[0m {}", e),
                     }
                 } else {
-                    println!("\x1b[33m⚠\x1b[0m Service '{}' is not running (no PID)", args.name);
+                    println!(
+                        "\x1b[33m⚠\x1b[0m Service '{}' is not running (no PID)",
+                        args.name
+                    );
                 }
             } else {
                 eprintln!("\x1b[31m✗\x1b[0m Service '{}' not found", args.name);
@@ -2126,11 +2996,16 @@ fn handle_service(cmd: ServiceCommand, dag: &mut DagEngine, logger: &CesarLogger
             if let Some(src) = source {
                 fs::create_dir_all(enabled_dir).ok();
                 if Path::new(&enabled_path).exists() {
-                    println!("\x1b[33m⚠\x1b[0m Service '{}' is already enabled", args.name);
+                    println!(
+                        "\x1b[33m⚠\x1b[0m Service '{}' is already enabled",
+                        args.name
+                    );
                 } else {
                     match std::os::unix::fs::symlink(&src, &enabled_path) {
                         Ok(()) => println!("\x1b[32m✓\x1b[0m Service '{}' enabled", args.name),
-                        Err(e) => eprintln!("\x1b[31m✗\x1b[0m Failed to enable '{}': {}", args.name, e),
+                        Err(e) => {
+                            eprintln!("\x1b[31m✗\x1b[0m Failed to enable '{}': {}", args.name, e)
+                        }
                     }
                 }
                 if args.now {
@@ -2139,12 +3014,29 @@ fn handle_service(cmd: ServiceCommand, dag: &mut DagEngine, logger: &CesarLogger
                         let exec = svc.config.exec.clone();
                         let env_vars = svc.config.environment.clone();
                         let work_dir = svc.config.working_directory.clone();
-                        match cprocess::spawn_service_env(&args.name, &exec, &env_vars, work_dir.as_deref(), logger) {
-                            Ok(pid) => { dag.mark_running(&args.name, pid); println!("\x1b[32m✓\x1b[0m Service '{}' started (PID {})", args.name, pid); }
-                            Err(e) => eprintln!("\x1b[31m✗\x1b[0m Failed to start '{}': {}", args.name, e),
+                        match cprocess::spawn_service_env(
+                            &args.name,
+                            &exec,
+                            &env_vars,
+                            work_dir.as_deref(),
+                            logger,
+                        ) {
+                            Ok(pid) => {
+                                dag.mark_running(&args.name, pid);
+                                println!(
+                                    "\x1b[32m✓\x1b[0m Service '{}' started (PID {})",
+                                    args.name, pid
+                                );
+                            }
+                            Err(e) => {
+                                eprintln!("\x1b[31m✗\x1b[0m Failed to start '{}': {}", args.name, e)
+                            }
                         }
                     } else {
-                        eprintln!("\x1b[31m✗\x1b[0m Service '{}' not found after enabling", args.name);
+                        eprintln!(
+                            "\x1b[31m✗\x1b[0m Service '{}' not found after enabling",
+                            args.name
+                        );
                     }
                 }
             } else {
@@ -2156,21 +3048,24 @@ fn handle_service(cmd: ServiceCommand, dag: &mut DagEngine, logger: &CesarLogger
                 load_services_if_empty(dag);
                 if let Some(svc) = dag.services.get(&args.name)
                     && let Some(pid) = svc.pid
-                        && cprocess::check_process(pid) == cprocess::ProcessStatus::Alive {
-                            dag.mark_stopping(&args.name);
-                            println!("\x1b[33m⚠\x1b[0m Stopping '{}' (PID {})...", args.name, pid);
-                            let _ = cprocess::kill_service_group(pid, libc::SIGTERM);
-                            std::thread::sleep(std::time::Duration::from_secs(3));
-                            let _ = cprocess::kill_service_group(pid, libc::SIGKILL);
-                            dag.mark_stopped(&args.name);
-                            println!("\x1b[32m✓\x1b[0m Service '{}' stopped", args.name);
-                        }
+                    && cprocess::check_process(pid) == cprocess::ProcessStatus::Alive
+                {
+                    dag.mark_stopping(&args.name);
+                    println!("\x1b[33m⚠\x1b[0m Stopping '{}' (PID {})...", args.name, pid);
+                    let _ = cprocess::kill_service_group(pid, libc::SIGTERM);
+                    std::thread::sleep(std::time::Duration::from_secs(3));
+                    let _ = cprocess::kill_service_group(pid, libc::SIGKILL);
+                    dag.mark_stopped(&args.name);
+                    println!("\x1b[32m✓\x1b[0m Service '{}' stopped", args.name);
+                }
             }
             let enabled_path = format!("/etc/cesar/enabled/{}.ini", args.name);
             if Path::new(&enabled_path).exists() {
                 match fs::remove_file(&enabled_path) {
                     Ok(()) => println!("\x1b[32m✓\x1b[0m Service '{}' disabled", args.name),
-                    Err(e) => eprintln!("\x1b[31m✗\x1b[0m Failed to disable '{}': {}", args.name, e),
+                    Err(e) => {
+                        eprintln!("\x1b[31m✗\x1b[0m Failed to disable '{}': {}", args.name, e)
+                    }
                 }
             } else {
                 println!("\x1b[33m⚠\x1b[0m Service '{}' was not enabled", args.name);
@@ -2181,7 +3076,10 @@ fn handle_service(cmd: ServiceCommand, dag: &mut DagEngine, logger: &CesarLogger
             if let Some(ref name) = args.name {
                 if let Some(svc) = dag.services.get(name) {
                     if args.json {
-                        println!("{}", serde_json::json!({"name": name, "state": svc.state.to_string(), "pid": svc.pid}));
+                        println!(
+                            "{}",
+                            serde_json::json!({"name": name, "state": svc.state.to_string(), "pid": svc.pid})
+                        );
                     } else if !args.quiet {
                         let state_str = match svc.state {
                             ServiceState::Running => "\x1b[32mrunning\x1b[0m",
@@ -2194,16 +3092,44 @@ fn handle_service(cmd: ServiceCommand, dag: &mut DagEngine, logger: &CesarLogger
                         println!("Service: {}", name);
                         println!("State:   {}", state_str);
                         println!("Exec:    {}", svc.config.exec);
-                        println!("PID:     {}", svc.pid.map_or("-".to_string(), |p| p.to_string()));
-                        println!("Deps:    {}", if svc.config.requires.is_empty() { "none".to_string() } else { svc.config.requires.join(", ") });
+                        println!(
+                            "PID:     {}",
+                            svc.pid.map_or("-".to_string(), |p| p.to_string())
+                        );
+                        println!(
+                            "Deps:    {}",
+                            if svc.config.requires.is_empty() {
+                                "none".to_string()
+                            } else {
+                                svc.config.requires.join(", ")
+                            }
+                        );
                         println!("Restart: {:?}", svc.config.restart);
                         let enabled_path = format!("/etc/cesar/enabled/{}.ini", name);
-                        println!("Enabled: {}", if Path::new(&enabled_path).exists() { "yes" } else { "no" });
+                        println!(
+                            "Enabled: {}",
+                            if Path::new(&enabled_path).exists() {
+                                "yes"
+                            } else {
+                                "no"
+                            }
+                        );
                         if let Some(pid) = svc.pid {
-                            let alive = cprocess::check_process(pid) == cprocess::ProcessStatus::Alive;
-                            println!("Process: {}", if alive { "\x1b[32malive\x1b[0m" } else { "\x1b[31mdead\x1b[0m" });
+                            let alive =
+                                cprocess::check_process(pid) == cprocess::ProcessStatus::Alive;
+                            println!(
+                                "Process: {}",
+                                if alive {
+                                    "\x1b[32malive\x1b[0m"
+                                } else {
+                                    "\x1b[31mdead\x1b[0m"
+                                }
+                            );
                             if !alive {
-                                eprintln!("\x1b[33m⚠\x1b[0m Process {} is dead but state says running", pid);
+                                eprintln!(
+                                    "\x1b[33m⚠\x1b[0m Process {} is dead but state says running",
+                                    pid
+                                );
                             }
                         }
                     }
@@ -2227,13 +3153,22 @@ fn handle_service(cmd: ServiceCommand, dag: &mut DagEngine, logger: &CesarLogger
                     })
                     .map(|(name, svc)| serde_json::json!({"name": name, "state": svc.state.to_string(), "pid": svc.pid}))
                     .collect();
-                println!("{}", serde_json::to_string_pretty(&items).unwrap_or_else(|_| "[]".to_string()));
+                println!(
+                    "{}",
+                    serde_json::to_string_pretty(&items).unwrap_or_else(|_| "[]".to_string())
+                );
             } else {
                 for (name, svc) in &dag.services {
                     let running = matches!(svc.state, ServiceState::Running);
-                    if !args.all && !running && !matches!(svc.state, ServiceState::Failed) { continue; }
-                    if args.failed && !matches!(svc.state, ServiceState::Failed) { continue; }
-                    if args.running && !running { continue; }
+                    if !args.all && !running && !matches!(svc.state, ServiceState::Failed) {
+                        continue;
+                    }
+                    if args.failed && !matches!(svc.state, ServiceState::Failed) {
+                        continue;
+                    }
+                    if args.running && !running {
+                        continue;
+                    }
                     let icon = match svc.state {
                         ServiceState::Running => "\x1b[32m●\x1b[0m",
                         ServiceState::Failed => "\x1b[31m✗\x1b[0m",
@@ -2246,7 +3181,13 @@ fn handle_service(cmd: ServiceCommand, dag: &mut DagEngine, logger: &CesarLogger
                     if args.minimal {
                         println!("{} {}", icon, name);
                     } else {
-                        println!("{} {:<20} {:<12} {}", icon, name, format!("[{}]", svc.state), pid);
+                        println!(
+                            "{} {:<20} {:<12} {}",
+                            icon,
+                            name,
+                            format!("[{}]", svc.state),
+                            pid
+                        );
                     }
                 }
             }
@@ -2258,10 +3199,16 @@ fn handle_service(cmd: ServiceCommand, dag: &mut DagEngine, logger: &CesarLogger
                     println!("Name:      {}", svc.config.name);
                     println!("Exec:      {}", svc.config.exec);
                     println!("State:     {}", svc.state);
-                    println!("PID:       {}", svc.pid.map_or("-".to_string(), |p| p.to_string()));
+                    println!(
+                        "PID:       {}",
+                        svc.pid.map_or("-".to_string(), |p| p.to_string())
+                    );
                     println!("Restart:   {:?}", svc.config.restart);
                     println!("Socket:    {}", svc.config.socket.as_deref().unwrap_or("-"));
-                    println!("Desc:      {}", svc.config.description.as_deref().unwrap_or("-"));
+                    println!(
+                        "Desc:      {}",
+                        svc.config.description.as_deref().unwrap_or("-")
+                    );
                     println!("Restarts:  {}", svc.restart_count);
                 } else if args.deps {
                     println!("Dependencies for '{}':", args.name);
@@ -2280,26 +3227,42 @@ fn handle_service(cmd: ServiceCommand, dag: &mut DagEngine, logger: &CesarLogger
                             println!("PID:       {}", pid);
                             println!("State:     {}", svc.state);
                             let status = cprocess::check_process(pid);
-                            println!("Process:   {}", match status {
-                                cprocess::ProcessStatus::Alive => "\x1b[32malive\x1b[0m",
-                                _ => "\x1b[31mdead\x1b[0m",
-                            });
+                            println!(
+                                "Process:   {}",
+                                match status {
+                                    cprocess::ProcessStatus::Alive => "\x1b[32malive\x1b[0m",
+                                    _ => "\x1b[31mdead\x1b[0m",
+                                }
+                            );
                         }
                         None => println!("No PID (not running)"),
                     }
                 } else if args.json {
-                    println!("{}", serde_json::json!({
-                        "name": args.name,
-                        "state": svc.state.to_string(),
-                        "exec": svc.config.exec,
-                        "pid": svc.pid,
-                    }));
+                    println!(
+                        "{}",
+                        serde_json::json!({
+                            "name": args.name,
+                            "state": svc.state.to_string(),
+                            "exec": svc.config.exec,
+                            "pid": svc.pid,
+                        })
+                    );
                 } else {
                     println!("Service: {}", args.name);
                     println!("State:   {}", svc.state);
                     println!("Exec:    {}", svc.config.exec);
-                    println!("PID:     {}", svc.pid.map_or("-".to_string(), |p| p.to_string()));
-                    println!("Deps:    {}", if svc.config.requires.is_empty() { "none".to_string() } else { svc.config.requires.join(", ") });
+                    println!(
+                        "PID:     {}",
+                        svc.pid.map_or("-".to_string(), |p| p.to_string())
+                    );
+                    println!(
+                        "Deps:    {}",
+                        if svc.config.requires.is_empty() {
+                            "none".to_string()
+                        } else {
+                            svc.config.requires.join(", ")
+                        }
+                    );
                 }
             } else {
                 eprintln!("\x1b[31m✗\x1b[0m Service '{}' not found", args.name);
@@ -2349,10 +3312,15 @@ fn handle_service(cmd: ServiceCommand, dag: &mut DagEngine, logger: &CesarLogger
         ServiceCommand::Edit(args) => {
             let path = format!("/etc/cesar/services/{}.ini", args.name);
             if !Path::new(&path).exists() {
-                eprintln!("\x1b[31m✗\x1b[0m Config for '{}' not found at {}", args.name, path);
+                eprintln!(
+                    "\x1b[31m✗\x1b[0m Config for '{}' not found at {}",
+                    args.name, path
+                );
                 return;
             }
-            let editor = args.editor.unwrap_or_else(|| std::env::var("EDITOR").unwrap_or_else(|_| "vi".to_string()));
+            let editor = args
+                .editor
+                .unwrap_or_else(|| std::env::var("EDITOR").unwrap_or_else(|_| "vi".to_string()));
             let status = process::Command::new(&editor).arg(&path).status();
             match status {
                 Ok(s) if s.success() => println!("\x1b[32m✓\x1b[0m Config edited"),
@@ -2364,21 +3332,34 @@ fn handle_service(cmd: ServiceCommand, dag: &mut DagEngine, logger: &CesarLogger
             load_services_if_empty(dag);
             let user_path = format!("/etc/cesar/services/{}.ini", args.name);
             let sys_path = format!("/system/lib/cesar/services/{}.ini", args.name);
-            let disk_content = fs::read_to_string(&user_path).or_else(|_| fs::read_to_string(&sys_path));
+            let disk_content =
+                fs::read_to_string(&user_path).or_else(|_| fs::read_to_string(&sys_path));
             match disk_content {
                 Ok(disk) => {
                     if let Some(svc) = dag.services.get(&args.name) {
-                        let env_str = svc.config.environment.iter().map(|(k, v)| format!("{}={}", k, v)).collect::<Vec<_>>().join(" ");
+                        let env_str = svc
+                            .config
+                            .environment
+                            .iter()
+                            .map(|(k, v)| format!("{}={}", k, v))
+                            .collect::<Vec<_>>()
+                            .join(" ");
                         let running_config = format!(
                             "[Service]\nName = {}\nExec = {}\nRequires = {}\nRestart = {:?}\nSocket = {}\nDescription = {}\nEnvironment = {}\nWorkingDirectory = {}\n",
-                            svc.config.name, svc.config.exec, svc.config.requires.join(", "), svc.config.restart,
+                            svc.config.name,
+                            svc.config.exec,
+                            svc.config.requires.join(", "),
+                            svc.config.restart,
                             svc.config.socket.as_deref().unwrap_or(""),
                             svc.config.description.as_deref().unwrap_or(""),
                             env_str,
                             svc.config.working_directory.as_deref().unwrap_or("")
                         );
                         if disk.trim() == running_config.trim() {
-                            println!("\x1b[32m✓\x1b[0m Running config matches on-disk config for '{}'", args.name);
+                            println!(
+                                "\x1b[32m✓\x1b[0m Running config matches on-disk config for '{}'",
+                                args.name
+                            );
                         } else {
                             println!("Difference for '{}' (running vs on-disk):", args.name);
                             let disk_lines: Vec<&str> = disk.lines().collect();
@@ -2410,7 +3391,11 @@ fn handle_service(cmd: ServiceCommand, dag: &mut DagEngine, logger: &CesarLogger
                             match config::parse_cesar_config(path.to_str().unwrap_or_default()) {
                                 Ok(cfg) => {
                                     if !Path::new(&cfg.exec).exists() {
-                                        println!("\x1b[33m⚠\x1b[0m {} — valid syntax, Exec '{}' not found", path.display(), cfg.exec);
+                                        println!(
+                                            "\x1b[33m⚠\x1b[0m {} — valid syntax, Exec '{}' not found",
+                                            path.display(),
+                                            cfg.exec
+                                        );
                                     } else {
                                         println!("\x1b[32m✓\x1b[0m {}", path.display());
                                     }
@@ -2432,25 +3417,43 @@ fn handle_service(cmd: ServiceCommand, dag: &mut DagEngine, logger: &CesarLogger
             fs::create_dir_all(dir).ok();
             let path = format!("{}/{}.ini", dir, args.name);
             if Path::new(&path).exists() {
-                eprintln!("\x1b[33m⚠\x1b[0m Service '{}' already exists at {}", args.name, path);
+                eprintln!(
+                    "\x1b[33m⚠\x1b[0m Service '{}' already exists at {}",
+                    args.name, path
+                );
                 return;
             }
             let requires = args.requires.unwrap_or_default();
             let restart = args.restart.unwrap_or_else(|| "never".to_string());
-            let mut content = format!("[Service]\nName = {}\nExec = {}\nRestart = {}", args.name, args.exec, restart);
-            if !requires.is_empty() { content.push_str(&format!("\nRequires = {}", requires)); }
-            if let Some(ref desc) = args.description { content.push_str(&format!("\nDescription = {}", desc)); }
-            if let Some(ref sock) = args.socket { content.push_str(&format!("\nSocket = {}", sock)); }
+            let mut content = format!(
+                "[Service]\nName = {}\nExec = {}\nRestart = {}",
+                args.name, args.exec, restart
+            );
+            if !requires.is_empty() {
+                content.push_str(&format!("\nRequires = {}", requires));
+            }
+            if let Some(ref desc) = args.description {
+                content.push_str(&format!("\nDescription = {}", desc));
+            }
+            if let Some(ref sock) = args.socket {
+                content.push_str(&format!("\nSocket = {}", sock));
+            }
             content.push('\n');
             match atomic_write(&path, content.as_bytes()) {
-                Ok(()) => println!("\x1b[32m✓\x1b[0m Service '{}' created at {}", args.name, path),
+                Ok(()) => println!(
+                    "\x1b[32m✓\x1b[0m Service '{}' created at {}",
+                    args.name, path
+                ),
                 Err(e) => eprintln!("\x1b[31m✗\x1b[0m Failed: {}", e),
             }
         }
         ServiceCommand::Convert(args) => {
             let src = Path::new(&args.source);
             if !src.is_dir() {
-                eprintln!("\x1b[31m✗\x1b[0m Source directory '{}' not found", args.source);
+                eprintln!(
+                    "\x1b[31m✗\x1b[0m Source directory '{}' not found",
+                    args.source
+                );
                 return;
             }
             fs::create_dir_all(&args.dest).ok();
@@ -2465,20 +3468,36 @@ fn handle_service(cmd: ServiceCommand, dag: &mut DagEngine, logger: &CesarLogger
                 .unwrap_or_default();
             units.sort();
             if units.is_empty() {
-                eprintln!("\x1b[31m✗\x1b[0m No .service units found in {}", args.source);
+                eprintln!(
+                    "\x1b[31m✗\x1b[0m No .service units found in {}",
+                    args.source
+                );
                 return;
             }
-            println!("Converting {} systemd unit(s) from {} → {}", units.len(), args.source, args.dest);
+            println!(
+                "Converting {} systemd unit(s) from {} → {}",
+                units.len(),
+                args.source,
+                args.dest
+            );
             let mut converted = 0u32;
             let mut failed = 0u32;
             for unit in &units {
-                let name = unit.file_stem().map(|s| s.to_string_lossy().to_string()).unwrap_or_default();
-                if name.is_empty() { continue; }
+                let name = unit
+                    .file_stem()
+                    .map(|s| s.to_string_lossy().to_string())
+                    .unwrap_or_default();
+                if name.is_empty() {
+                    continue;
+                }
                 match convert_systemd_unit(unit, &name) {
                     Ok(content) => {
                         let dest_path = format!("{}/{}.ini", args.dest.trim_end_matches('/'), name);
                         if Path::new(&dest_path).exists() && !args.force {
-                            println!("\x1b[33m⚠\x1b[0m Skipped '{}': {} exists (use --force)", name, dest_path);
+                            println!(
+                                "\x1b[33m⚠\x1b[0m Skipped '{}': {} exists (use --force)",
+                                name, dest_path
+                            );
                             continue;
                         }
                         match atomic_write(&dest_path, content.as_bytes()) {
@@ -2499,34 +3518,53 @@ fn handle_service(cmd: ServiceCommand, dag: &mut DagEngine, logger: &CesarLogger
                 }
             }
             if converted == 0 && failed == 0 {
-                println!("\x1b[33m⚠\x1b[0m Nothing to convert; keeping {}", args.source);
+                println!(
+                    "\x1b[33m⚠\x1b[0m Nothing to convert; keeping {}",
+                    args.source
+                );
                 return;
             }
             if failed > 0 && !args.force {
-                eprintln!("\x1b[33m⚠\x1b[0m {} unit(s) failed to convert; '{}' kept (use --force to remove anyway)", failed, args.source);
+                eprintln!(
+                    "\x1b[33m⚠\x1b[0m {} unit(s) failed to convert; '{}' kept (use --force to remove anyway)",
+                    failed, args.source
+                );
                 return;
             }
             if !args.remove_source {
-                println!("\x1b[33m⚠\x1b[0m Source kept: {} (pass --remove-source to delete it)", args.source);
+                println!(
+                    "\x1b[33m⚠\x1b[0m Source kept: {} (pass --remove-source to delete it)",
+                    args.source
+                );
                 return;
             }
             match fs::remove_dir_all(src) {
-                Ok(()) => println!("\x1b[32m✓\x1b[0m Removed systemd services dir {}", args.source),
+                Ok(()) => println!(
+                    "\x1b[32m✓\x1b[0m Removed systemd services dir {}",
+                    args.source
+                ),
                 Err(e) => eprintln!("\x1b[31m✗\x1b[0m Failed to remove {}: {}", args.source, e),
             }
         }
         ServiceCommand::Rm(args) => {
             let path = format!("/etc/cesar/services/{}.ini", args.name);
             if !Path::new(&path).exists() {
-                eprintln!("\x1b[31m✗\x1b[0m Service '{}' not found at {}", args.name, path);
+                eprintln!(
+                    "\x1b[31m✗\x1b[0m Service '{}' not found at {}",
+                    args.name, path
+                );
                 return;
             }
             if !args.force
                 && let Some(svc) = dag.services.get(&args.name)
-                    && matches!(svc.state, ServiceState::Running) {
-                        eprintln!("\x1b[31m✗\x1b[0m Service '{}' is running. Stop first or use --force", args.name);
-                        return;
-                    }
+                && matches!(svc.state, ServiceState::Running)
+            {
+                eprintln!(
+                    "\x1b[31m✗\x1b[0m Service '{}' is running. Stop first or use --force",
+                    args.name
+                );
+                return;
+            }
             match fs::remove_file(&path) {
                 Ok(()) => {
                     println!("\x1b[32m✓\x1b[0m Service '{}' removed", args.name);
@@ -2538,12 +3576,18 @@ fn handle_service(cmd: ServiceCommand, dag: &mut DagEngine, logger: &CesarLogger
         }
         ServiceCommand::Monitor(args) => {
             load_services_if_empty(dag);
-            println!("Monitoring '{}' (Ctrl+C to stop, interval={}ms)...", args.name, args.interval);
+            println!(
+                "Monitoring '{}' (Ctrl+C to stop, interval={}ms)...",
+                args.name, args.interval
+            );
             let mut consecutive_failures = 0u32;
             loop {
                 std::thread::sleep(std::time::Duration::from_millis(args.interval));
                 let state = dag.services.get(&args.name).map(|svc| {
-                    let process_alive = svc.pid.map(|pid| cprocess::check_process(pid) == cprocess::ProcessStatus::Alive).unwrap_or(false);
+                    let process_alive = svc
+                        .pid
+                        .map(|pid| cprocess::check_process(pid) == cprocess::ProcessStatus::Alive)
+                        .unwrap_or(false);
                     (svc.state.clone(), svc.pid, process_alive)
                 });
                 match state {
@@ -2555,24 +3599,39 @@ fn handle_service(cmd: ServiceCommand, dag: &mut DagEngine, logger: &CesarLogger
                             ServiceState::Failed => "\x1b[31m✗\x1b[0m",
                             _ => "\x1b[33m◌\x1b[0m",
                         };
-                        println!("[{}] {} {} [{}] PID={}", ts, state_icon, args.name, svc_state, pid.map_or("-".to_string(), |p| p.to_string()));
+                        println!(
+                            "[{}] {} {} [{}] PID={}",
+                            ts,
+                            state_icon,
+                            args.name,
+                            svc_state,
+                            pid.map_or("-".to_string(), |p| p.to_string())
+                        );
                         if matches!(svc_state, ServiceState::Running) && !alive {
                             consecutive_failures += 1;
                             if consecutive_failures >= args.threshold {
-                                eprintln!("\x1b[31m⚠ ALERT:\x1b[0m '{}' dead for {} checks", args.name, consecutive_failures);
+                                eprintln!(
+                                    "\x1b[31m⚠ ALERT:\x1b[0m '{}' dead for {} checks",
+                                    args.name, consecutive_failures
+                                );
                             }
                         } else {
                             consecutive_failures = 0;
                         }
                     }
-                    None => { eprintln!("\x1b[31m✗\x1b[0m Service '{}' not found", args.name); break; }
+                    None => {
+                        eprintln!("\x1b[31m✗\x1b[0m Service '{}' not found", args.name);
+                        break;
+                    }
                 }
             }
         }
         ServiceCommand::Watch(_args) => {
             println!("Watching log for events (Ctrl+C to stop)...");
             let log_path = "/var/log/cesar.md";
-            let mut last_len = fs::metadata(log_path).map(|m| m.len() as usize).unwrap_or(0);
+            let mut last_len = fs::metadata(log_path)
+                .map(|m| m.len() as usize)
+                .unwrap_or(0);
             loop {
                 std::thread::sleep(std::time::Duration::from_secs(1));
                 if let Ok(content) = fs::read_to_string(log_path) {
@@ -2583,7 +3642,10 @@ fn handle_service(cmd: ServiceCommand, dag: &mut DagEngine, logger: &CesarLogger
                     if content.len() > last_len {
                         let (new_content, end) = crate::logger::safe_tail(&content, last_len);
                         for line in new_content.lines() {
-                            if line.contains("EVENT:") || line.contains("CRITICAL") || line.contains("WARNING") {
+                            if line.contains("EVENT:")
+                                || line.contains("CRITICAL")
+                                || line.contains("WARNING")
+                            {
                                 println!("{}", line.trim_start_matches('>').trim());
                             }
                         }
@@ -2597,7 +3659,11 @@ fn handle_service(cmd: ServiceCommand, dag: &mut DagEngine, logger: &CesarLogger
             let _ = dag.build_dependency_graph();
             let order = dag.get_boot_order();
             if args.flat {
-                for level in &order { for name in level { println!("{}", name); } }
+                for level in &order {
+                    for name in level {
+                        println!("{}", name);
+                    }
+                }
             } else {
                 println!("Cesar Service Dependency Tree");
                 println!("{}", "─".repeat(40));
@@ -2605,11 +3671,21 @@ fn handle_service(cmd: ServiceCommand, dag: &mut DagEngine, logger: &CesarLogger
                     for name in level {
                         let deps = &dag.services[name].config.requires;
                         let state = dag.get_service_state(name).unwrap_or(ServiceState::Stopped);
-                        let icon = match state { ServiceState::Running => "\x1b[32m●\x1b[0m", ServiceState::Failed => "\x1b[31m✗\x1b[0m", _ => "\x1b[90m○\x1b[0m" };
+                        let icon = match state {
+                            ServiceState::Running => "\x1b[32m●\x1b[0m",
+                            ServiceState::Failed => "\x1b[31m✗\x1b[0m",
+                            _ => "\x1b[90m○\x1b[0m",
+                        };
                         if deps.is_empty() {
                             println!("  [{}] {} {} (no dependencies)", level_idx + 1, icon, name);
                         } else {
-                            println!("  [{}] {} {} (requires: {})", level_idx + 1, icon, name, deps.join(", "));
+                            println!(
+                                "  [{}] {} {} (requires: {})",
+                                level_idx + 1,
+                                icon,
+                                name,
+                                deps.join(", ")
+                            );
                         }
                     }
                 }
@@ -2668,7 +3744,10 @@ fn handle_plugin(cmd: PluginCommand) {
             }
 
             let name = args.name.unwrap_or_else(|| {
-                src.file_stem().unwrap_or_default().to_string_lossy().to_string()
+                src.file_stem()
+                    .unwrap_or_default()
+                    .to_string_lossy()
+                    .to_string()
             });
 
             let plugins_dir = Path::new("/etc/cesar/plugins");
@@ -2678,7 +3757,11 @@ fn handle_plugin(cmd: PluginCommand) {
 
             let dest = plugins_dir.join(src.file_name().unwrap_or_default());
             if dest.exists() && !args.force {
-                eprintln!("\x1b[33m⚠\x1b[0m Plugin '{}' already exists at {}", name, dest.display());
+                eprintln!(
+                    "\x1b[33m⚠\x1b[0m Plugin '{}' already exists at {}",
+                    name,
+                    dest.display()
+                );
                 eprintln!("  Use --force to overwrite");
                 return;
             }
@@ -2726,28 +3809,26 @@ fn handle_plugin(cmd: PluginCommand) {
             cps::plugin::PluginManager::unregister(&args.name);
             println!("\x1b[32m✓\x1b[0m Plugin '{}' removed", args.name);
         }
-        PluginCommand::Info(args) => {
-            match cps::plugin::PluginManager::by_name(&args.name) {
-                Some(p) => {
-                    println!("\x1b[32m{}\x1b[0m", p.name);
-                    println!("  Path:    {}", p.path);
-                    let path = Path::new(&p.path);
-                    if path.exists() {
-                        let meta = fs::metadata(path).ok();
-                        if let Some(m) = meta {
-                            println!("  Size:    {} bytes", m.len());
-                        }
-                    }
-                    if !p.aliases.is_empty() {
-                        println!("  Aliases:");
-                        for (alias, cmd) in &p.aliases {
-                            println!("    {}  →  {}", alias, cmd);
-                        }
+        PluginCommand::Info(args) => match cps::plugin::PluginManager::by_name(&args.name) {
+            Some(p) => {
+                println!("\x1b[32m{}\x1b[0m", p.name);
+                println!("  Path:    {}", p.path);
+                let path = Path::new(&p.path);
+                if path.exists() {
+                    let meta = fs::metadata(path).ok();
+                    if let Some(m) = meta {
+                        println!("  Size:    {} bytes", m.len());
                     }
                 }
-                None => eprintln!("\x1b[31m✗\x1b[0m Plugin '{}' not found", args.name),
+                if !p.aliases.is_empty() {
+                    println!("  Aliases:");
+                    for (alias, cmd) in &p.aliases {
+                        println!("    {}  →  {}", alias, cmd);
+                    }
+                }
             }
-        }
+            None => eprintln!("\x1b[31m✗\x1b[0m Plugin '{}' not found", args.name),
+        },
     }
 }
 
@@ -2794,7 +3875,10 @@ fn handle_theme(cmd: ThemeCommand) {
             }
 
             let name = args.name.unwrap_or_else(|| {
-                src.file_stem().unwrap_or_default().to_string_lossy().to_string()
+                src.file_stem()
+                    .unwrap_or_default()
+                    .to_string_lossy()
+                    .to_string()
             });
 
             let themes_dir = Path::new("/etc/cesar/themes");
@@ -2804,7 +3888,11 @@ fn handle_theme(cmd: ThemeCommand) {
 
             let dest = themes_dir.join(src.file_name().unwrap_or_default());
             if dest.exists() && !args.force {
-                eprintln!("\x1b[33m⚠\x1b[0m Theme '{}' already exists at {}", name, dest.display());
+                eprintln!(
+                    "\x1b[33m⚠\x1b[0m Theme '{}' already exists at {}",
+                    name,
+                    dest.display()
+                );
                 eprintln!("  Use --force to overwrite");
                 return;
             }
@@ -2834,25 +3922,23 @@ fn handle_theme(cmd: ThemeCommand) {
             cps::theme::ThemeEngine::unregister(&args.name);
             println!("\x1b[32m✓\x1b[0m Theme '{}' removed", args.name);
         }
-        ThemeCommand::Info(args) => {
-            match cps::theme::ThemeEngine::by_name(&args.name) {
-                Some(t) => {
-                    println!("\x1b[32m{}\x1b[0m", t.name);
-                    println!("  Path: {}", t.path);
-                    if !t.description.is_empty() {
-                        println!("  Desc: {}", t.description);
-                    }
-                    let path = Path::new(&t.path);
-                    if path.exists() {
-                        let meta = fs::metadata(path).ok();
-                        if let Some(m) = meta {
-                            println!("  Size:    {} bytes", m.len());
-                        }
+        ThemeCommand::Info(args) => match cps::theme::ThemeEngine::by_name(&args.name) {
+            Some(t) => {
+                println!("\x1b[32m{}\x1b[0m", t.name);
+                println!("  Path: {}", t.path);
+                if !t.description.is_empty() {
+                    println!("  Desc: {}", t.description);
+                }
+                let path = Path::new(&t.path);
+                if path.exists() {
+                    let meta = fs::metadata(path).ok();
+                    if let Some(m) = meta {
+                        println!("  Size:    {} bytes", m.len());
                     }
                 }
-                None => eprintln!("\x1b[31m✗\x1b[0m Theme '{}' not found", args.name),
             }
-        }
+            None => eprintln!("\x1b[31m✗\x1b[0m Theme '{}' not found", args.name),
+        },
     }
 }
 
@@ -2899,7 +3985,10 @@ fn handle_tui(cmd: TuiCommand) {
             }
 
             let name = args.name.unwrap_or_else(|| {
-                src.file_stem().unwrap_or_default().to_string_lossy().to_string()
+                src.file_stem()
+                    .unwrap_or_default()
+                    .to_string_lossy()
+                    .to_string()
             });
 
             let tuis_dir = Path::new("/etc/cesar/tuis");
@@ -2909,7 +3998,11 @@ fn handle_tui(cmd: TuiCommand) {
 
             let dest = tuis_dir.join(src.file_name().unwrap_or_default());
             if dest.exists() && !args.force {
-                eprintln!("\x1b[33m⚠\x1b[0m TUI '{}' already exists at {}", name, dest.display());
+                eprintln!(
+                    "\x1b[33m⚠\x1b[0m TUI '{}' already exists at {}",
+                    name,
+                    dest.display()
+                );
                 eprintln!("  Use --force to overwrite");
                 return;
             }
@@ -2939,24 +4032,22 @@ fn handle_tui(cmd: TuiCommand) {
             cps::tui::TuiEngine::unregister(&args.name);
             println!("\x1b[32m✓\x1b[0m TUI '{}' removed", args.name);
         }
-        TuiCommand::Info(args) => {
-            match cps::tui::TuiEngine::by_name(&args.name) {
-                Some(t) => {
-                    println!("\x1b[32m{}\x1b[0m", t.name);
-                    println!("  Path: {}", t.path);
-                    if !t.description.is_empty() {
-                        println!("  Desc: {}", t.description);
-                    }
-                    let path = Path::new(&t.path);
-                    if path.exists() {
-                        let meta = fs::metadata(path).ok();
-                        if let Some(m) = meta {
-                            println!("  Size:    {} bytes", m.len());
-                        }
+        TuiCommand::Info(args) => match cps::tui::TuiEngine::by_name(&args.name) {
+            Some(t) => {
+                println!("\x1b[32m{}\x1b[0m", t.name);
+                println!("  Path: {}", t.path);
+                if !t.description.is_empty() {
+                    println!("  Desc: {}", t.description);
+                }
+                let path = Path::new(&t.path);
+                if path.exists() {
+                    let meta = fs::metadata(path).ok();
+                    if let Some(m) = meta {
+                        println!("  Size:    {} bytes", m.len());
                     }
                 }
-                None => eprintln!("\x1b[31m✗\x1b[0m TUI '{}' not found", args.name),
             }
-        }
+            None => eprintln!("\x1b[31m✗\x1b[0m TUI '{}' not found", args.name),
+        },
     }
 }

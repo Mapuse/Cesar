@@ -68,7 +68,10 @@ impl DagEngine {
         }
 
         if let Some(cycle) = Self::find_cycle(&new_adjacency, names.iter()) {
-            return Err(format!("Circular dependency detected: {}", cycle.join(" -> ")));
+            return Err(format!(
+                "Circular dependency detected: {}",
+                cycle.join(" -> ")
+            ));
         }
 
         self.adjacency = new_adjacency;
@@ -112,7 +115,10 @@ impl DagEngine {
                         return Some(cycle);
                     }
                 } else if stack.contains(dep) {
-                    let cycle_start = path.iter().position(|p| p == dep).expect("cycle start in path");
+                    let cycle_start = path
+                        .iter()
+                        .position(|p| p == dep)
+                        .expect("cycle start in path");
                     let mut cycle = path[cycle_start..].to_vec();
                     cycle.push(dep.to_string());
                     return Some(cycle);
@@ -179,8 +185,7 @@ impl DagEngine {
     /// start without this report.
     pub fn unresolved(&self) -> Vec<String> {
         let boot_order = self.get_boot_order();
-        let scheduled: std::collections::HashSet<&String> =
-            boot_order.iter().flatten().collect();
+        let scheduled: std::collections::HashSet<&String> = boot_order.iter().flatten().collect();
         let mut missing: Vec<String> = self
             .services
             .keys()

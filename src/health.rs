@@ -32,61 +32,63 @@ impl HealthReport {
         let mut valid_configs = 0usize;
         let mut zombies = 0usize;
 
-
         let kernel = fs::read_to_string("/proc/version")
             .map(|v| v.split_whitespace().take(3).collect::<Vec<_>>().join(" "))
             .unwrap_or_else(|_| "unknown".to_string());
-
 
         let uptime_secs = fs::read_to_string("/proc/uptime")
             .ok()
             .and_then(|s| s.split_whitespace().next()?.parse::<f64>().ok())
             .unwrap_or(0.0);
 
-
         let hostname = crate::hostname();
-
 
         let proc_ok = Path::new("/proc/uptime").exists();
         let sys_ok = Path::new("/sys/kernel").exists();
         let dev_ok = Path::new("/dev/null").exists();
         if !proc_ok || !sys_ok || !dev_ok {
             let mut missing = Vec::new();
-            if !proc_ok { missing.push("/proc"); }
-            if !sys_ok { missing.push("/sys"); }
-            if !dev_ok { missing.push("/dev"); }
+            if !proc_ok {
+                missing.push("/proc");
+            }
+            if !sys_ok {
+                missing.push("/sys");
+            }
+            if !dev_ok {
+                missing.push("/dev");
+            }
             errors.push(HealthIssue {
                 context: format!("Virtual filesystems not mounted: {}", missing.join(", ")),
                 fix: "mount -t proc proc /proc; mount -t sysfs sysfs /sys; mount -t devtmpfs devtmpfs /dev".to_string(),
             });
         }
 
-
         let cs_path = "/system/bin/csr";
         let init_path = "/sbin/init";
         if Path::new(cs_path).exists() {
             if let Ok(meta) = fs::metadata(cs_path)
-                && meta.permissions().mode() & 0o111 == 0 {
-                    warnings.push(HealthIssue {
-                        context: format!("{} is not executable", cs_path),
-                        fix: format!("chmod +x {}", cs_path),
-                    });
-                }
+                && meta.permissions().mode() & 0o111 == 0
+            {
+                warnings.push(HealthIssue {
+                    context: format!("{} is not executable", cs_path),
+                    fix: format!("chmod +x {}", cs_path),
+                });
+            }
         } else if Path::new(init_path).exists() {
             if let Ok(meta) = fs::metadata(init_path)
-                && meta.permissions().mode() & 0o111 == 0 {
-                    warnings.push(HealthIssue {
-                        context: format!("{} is not executable", init_path),
-                        fix: format!("chmod +x {}", init_path),
-                    });
-                }
+                && meta.permissions().mode() & 0o111 == 0
+            {
+                warnings.push(HealthIssue {
+                    context: format!("{} is not executable", init_path),
+                    fix: format!("chmod +x {}", init_path),
+                });
+            }
         } else {
             warnings.push(HealthIssue {
                 context: "Neither /system/bin/csr nor /sbin/init found".to_string(),
                 fix: "ln /system/bin/csr /sbin/init".to_string(),
             });
         }
-
 
         let sys_svc = "/system/lib/cesar/services";
         let user_svc = "/etc/cesar/services";
@@ -101,11 +103,16 @@ impl HealthReport {
         }
         if user_ok && !enabled_ok {
             warnings.push(HealthIssue {
-                context: format!("{} does not exist (optional: only services linked there are enabled)", enabled_dir),
-                fix: format!("mkdir -p {}  # then symlink services/*.ini to enable selective boot", enabled_dir),
+                context: format!(
+                    "{} does not exist (optional: only services linked there are enabled)",
+                    enabled_dir
+                ),
+                fix: format!(
+                    "mkdir -p {}  # then symlink services/*.ini to enable selective boot",
+                    enabled_dir
+                ),
             });
         }
-
 
         for dir in &[sys_svc, user_svc] {
             if let Ok(entries) = fs::read_dir(dir) {
@@ -123,16 +130,21 @@ impl HealthReport {
                                         fix: "Install the package providing this binary or fix the Exec= path".to_string(),
                                     });
                                 } else if let Ok(meta) = fs::metadata(&cfg.exec)
-                                    && meta.permissions().mode() & 0o111 == 0 {
-                                        warnings.push(HealthIssue {
-                                            context: format!("{}: Exec '{}' not executable", path.file_name().unwrap_or_default().to_string_lossy(), cfg.exec),
-                                            fix: format!("chmod +x {}", cfg.exec),
-                                        });
-                                    }
-                                for dep in &cfg.requires {
-                                    let dep_exists = [sys_svc, user_svc].iter().any(|d| {
-                                        Path::new(&format!("{}/{}.ini", d, dep)).exists()
+                                    && meta.permissions().mode() & 0o111 == 0
+                                {
+                                    warnings.push(HealthIssue {
+                                        context: format!(
+                                            "{}: Exec '{}' not executable",
+                                            path.file_name().unwrap_or_default().to_string_lossy(),
+                                            cfg.exec
+                                        ),
+                                        fix: format!("chmod +x {}", cfg.exec),
                                     });
+                                }
+                                for dep in &cfg.requires {
+                                    let dep_exists = [sys_svc, user_svc]
+                                        .iter()
+                                        .any(|d| Path::new(&format!("{}/{}.ini", d, dep)).exists());
                                     if !dep_exists {
                                         errors.push(HealthIssue {
                                             context: format!("{}: dependency '{}' not defined", path.file_name().unwrap_or_default().to_string_lossy(), dep),
@@ -143,8 +155,13 @@ impl HealthReport {
                             }
                             Err(e) => {
                                 errors.push(HealthIssue {
-                                    context: format!("{}: {}", path.file_name().unwrap_or_default().to_string_lossy(), e),
-                                    fix: "Fix the service config file or reinstall the package".to_string(),
+                                    context: format!(
+                                        "{}: {}",
+                                        path.file_name().unwrap_or_default().to_string_lossy(),
+                                        e
+                                    ),
+                                    fix: "Fix the service config file or reinstall the package"
+                                        .to_string(),
                                 });
                             }
                         }
@@ -153,43 +170,43 @@ impl HealthReport {
             }
         }
 
-
         if let Ok(proc_dir) = fs::read_dir("/proc") {
             let own_pid = unsafe { libc::getpid() };
             for entry in proc_dir.flatten() {
                 let name = entry.file_name();
                 if let Some(pid_str) = name.to_str()
-                    && pid_str.chars().all(|c| c.is_ascii_digit()) {
-                        // Our own children are reaped by PID 1; a transient
-                        // zombie there is normal, not a system problem.
-                        let ppid = fs::read_to_string(format!("/proc/{}/stat", pid_str))
-                            .ok()
-                            .and_then(|stat| {
-                                stat.rsplit_once(')').and_then(|(_, rest)| {
-                                    rest.split_whitespace().nth(1)?.parse::<i64>().ok()
-                                })
-                            });
-                        if ppid == Some(own_pid as i64) {
-                            continue;
-                        }
-                        let status_path = format!("/proc/{}/status", pid_str);
-                        if let Ok(status) = fs::read_to_string(&status_path) {
-                            for line in status.lines() {
-                                if line.starts_with("State:") && line.contains('Z') {
-                                    zombies += 1;
-                                }
+                    && pid_str.chars().all(|c| c.is_ascii_digit())
+                {
+                    // Our own children are reaped by PID 1; a transient
+                    // zombie there is normal, not a system problem.
+                    let ppid = fs::read_to_string(format!("/proc/{}/stat", pid_str))
+                        .ok()
+                        .and_then(|stat| {
+                            stat.rsplit_once(')').and_then(|(_, rest)| {
+                                rest.split_whitespace().nth(1)?.parse::<i64>().ok()
+                            })
+                        });
+                    if ppid == Some(own_pid as i64) {
+                        continue;
+                    }
+                    let status_path = format!("/proc/{}/status", pid_str);
+                    if let Ok(status) = fs::read_to_string(&status_path) {
+                        for line in status.lines() {
+                            if line.starts_with("State:") && line.contains('Z') {
+                                zombies += 1;
                             }
                         }
                     }
+                }
             }
         }
         if zombies > 0 {
             warnings.push(HealthIssue {
                 context: format!("{} zombie process(es) detected", zombies),
-                fix: "PID 1 (cesar) auto-reaps zombies. If persistent, check SIGCHLD handler".to_string(),
+                fix: "PID 1 (cesar) auto-reaps zombies. If persistent, check SIGCHLD handler"
+                    .to_string(),
             });
         }
-
 
         let mut disk_used_pct = 0u64;
         let mut disk_avail = "unknown".to_string();
@@ -200,14 +217,18 @@ impl HealthReport {
                 // f_bfree (not f_bavail): init runs as root, so all free
                 // blocks are usable and "used" is measured against them.
                 let avail = stat.f_bfree * stat.f_frsize;
-                disk_used_pct = (total - avail).checked_mul(100).and_then(|v| v.checked_div(total)).unwrap_or(0);
+                disk_used_pct = (total - avail)
+                    .checked_mul(100)
+                    .and_then(|v| v.checked_div(total))
+                    .unwrap_or(0);
                 disk_avail = format_bytes(avail);
             }
         }
         if disk_used_pct > 95 {
             errors.push(HealthIssue {
                 context: format!("Root filesystem {}% full", disk_used_pct),
-                fix: "Remove unused packages, clear /var/cache, or expand the partition".to_string(),
+                fix: "Remove unused packages, clear /var/cache, or expand the partition"
+                    .to_string(),
             });
         } else if disk_used_pct > 85 {
             warnings.push(HealthIssue {
@@ -216,26 +237,24 @@ impl HealthReport {
             });
         }
 
-
         let tcp_listeners = fs::read_to_string("/proc/net/tcp")
             .map(|tcp| {
-                tcp.lines().filter(|l| {
-                    let fields: Vec<&str> = l.split_whitespace().collect();
-                    fields.len() > 3 && fields[3] == "0A"
-                }).count()
+                tcp.lines()
+                    .filter(|l| {
+                        let fields: Vec<&str> = l.split_whitespace().collect();
+                        fields.len() > 3 && fields[3] == "0A"
+                    })
+                    .count()
             })
             .unwrap_or(0);
 
-
         let log_file = "/var/log/cesar.md";
-        if !Path::new(log_file).exists()
-
-            && Path::new("/var/log").exists() {
-                warnings.push(HealthIssue {
-                    context: format!("{} does not exist yet", log_file),
-                    fix: "Created automatically on first boot by CesarLogger".to_string(),
-                });
-            }
+        if !Path::new(log_file).exists() && Path::new("/var/log").exists() {
+            warnings.push(HealthIssue {
+                context: format!("{} does not exist yet", log_file),
+                fix: "Created automatically on first boot by CesarLogger".to_string(),
+            });
+        }
 
         HealthReport {
             errors,
@@ -268,7 +287,6 @@ impl HealthReport {
     pub fn print_status(&self) {
         println!("\x1b[36mHealth:\x1b[0m");
 
-
         println!("  Host:    {}", self.hostname);
         println!("  Kernel:  {}", self.kernel);
         let days = (self.uptime_secs / 86400.0) as u64;
@@ -282,24 +300,25 @@ impl HealthReport {
             println!("  Uptime:  {}m", mins);
         }
 
-
-        println!("  Disk:    {}% used ({} free)", self.disk_used_pct, self.disk_avail);
-
+        println!(
+            "  Disk:    {}% used ({} free)",
+            self.disk_used_pct, self.disk_avail
+        );
 
         println!("  TCP:     {} listener(s)", self.tcp_listeners);
 
-
         if self.total_configs > 0 {
-            println!("  Configs: {}/{} valid", self.valid_configs, self.total_configs);
+            println!(
+                "  Configs: {}/{} valid",
+                self.valid_configs, self.total_configs
+            );
         } else {
             println!("  Configs: none found");
         }
 
-
         if self.zombies > 0 {
             println!("  Zombies: \x1b[33m{}\x1b[0m", self.zombies);
         }
-
 
         let proc_ok = Path::new("/proc/uptime").exists();
         let sys_ok = Path::new("/sys/kernel").exists();
@@ -309,7 +328,6 @@ impl HealthReport {
             _ => "\x1b[31mdegraded\x1b[0m",
         };
         println!("  FS:      {}", fs_status);
-
 
         if !self.errors.is_empty() || !self.warnings.is_empty() {
             println!();

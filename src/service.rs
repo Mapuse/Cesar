@@ -100,6 +100,9 @@ impl Service {
     }
 
     pub fn is_ready(&self) -> bool {
-        matches!(self.state, ServiceState::Running | ServiceState::Failed | ServiceState::Stopped)
+        matches!(
+            self.state,
+            ServiceState::Running | ServiceState::Failed | ServiceState::Stopped
+        )
     }
 }

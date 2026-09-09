@@ -28,7 +28,11 @@ fn parse_config_content(content: &str, source: &str) -> io::Result<ServiceConfig
     for line in content.lines() {
         let trimmed = line.trim();
 
-        if trimmed.is_empty() || trimmed.starts_with('#') || trimmed.starts_with(';') || trimmed.starts_with('[') {
+        if trimmed.is_empty()
+            || trimmed.starts_with('#')
+            || trimmed.starts_with(';')
+            || trimmed.starts_with('[')
+        {
             continue;
         }
 
@@ -117,7 +121,10 @@ pub fn validate_service_name(name: &str) -> Result<(), String> {
         if c.is_control() {
             return Err(format!("control character {:?} not allowed", c));
         }
-        if matches!(c, '/' | '\\' | '\0' | '$' | '`' | ';' | '&' | '|' | '>' | '<') {
+        if matches!(
+            c,
+            '/' | '\\' | '\0' | '$' | '`' | ';' | '&' | '|' | '>' | '<'
+        ) {
             return Err(format!("character {:?} not allowed", c));
         }
     }
@@ -273,10 +280,8 @@ NotAKeyWeKnow = whatever
 
     #[test]
     fn working_directory_and_socket_captured() {
-        let cfg = parse(
-            "Name = s\nExec = x\nWorkingDirectory = /srv\nSocket = unix:/run/s.sock\n",
-        )
-        .expect("parses");
+        let cfg = parse("Name = s\nExec = x\nWorkingDirectory = /srv\nSocket = unix:/run/s.sock\n")
+            .expect("parses");
         assert_eq!(cfg.working_directory.as_deref(), Some("/srv"));
         assert_eq!(cfg.socket.as_deref(), Some("unix:/run/s.sock"));
     }

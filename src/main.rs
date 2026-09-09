@@ -37,7 +37,8 @@ static CESAR_DAG: OnceLock<Mutex<DagEngine>> = OnceLock::new();
 static RUNNING_CHILDREN: OnceLock<Mutex<Vec<(String, u32)>>> = OnceLock::new();
 static SHUTDOWN_REQUESTED: AtomicBool = AtomicBool::new(false);
 /// reboot(2) command for the pending shutdown: RB_POWER_OFF or RB_AUTOBOOT.
-static REBOOT_CMD: std::sync::atomic::AtomicI32 = std::sync::atomic::AtomicI32::new(libc::RB_POWER_OFF);
+static REBOOT_CMD: std::sync::atomic::AtomicI32 =
+    std::sync::atomic::AtomicI32::new(libc::RB_POWER_OFF);
 static REAP_NEEDED: AtomicBool = AtomicBool::new(false);
 static RELOAD_NEEDED: AtomicBool = AtomicBool::new(false);
 
@@ -82,10 +83,7 @@ fn start_control_server() {
     };
     // Bind honors the daemon umask; force an explicit group-writable mode so
     // only root (and the wheel/admin group) can talk to PID 1.
-    let _ = std::fs::set_permissions(
-        ipc::CONTROL_SOCKET,
-        std::fs::Permissions::from_mode(0o660),
-    );
+    let _ = std::fs::set_permissions(ipc::CONTROL_SOCKET, std::fs::Permissions::from_mode(0o660));
     let logger = get_logger();
     logger.log_info("ipc", "Control socket listening");
     std::thread::spawn(move || {
@@ -104,7 +102,11 @@ fn start_control_server() {
 /// UID of the process on the other end of the socket, via SO_PEERCRED.
 fn peer_uid(stream: &UnixStream) -> Option<u32> {
     use std::os::unix::io::AsRawFd;
-    let mut cred = libc::ucred { pid: 0, uid: 0, gid: 0 };
+    let mut cred = libc::ucred {
+        pid: 0,
+        uid: 0,
+        gid: 0,
+    };
     let mut len = std::mem::size_of::<libc::ucred>() as libc::socklen_t;
     let ret = unsafe {
         libc::getsockopt(
@@ -135,7 +137,9 @@ fn handle_control_conn(stream: UnixStream) {
     // Mutating actions require root on the control socket; read-only
     // queries stay available to local unprivileged callers.
     if ipc::action_is_privileged(&action) && peer_uid(reader.get_ref()) != Some(0) {
-        let uid = peer_uid(reader.get_ref()).map(|u| u.to_string()).unwrap_or_else(|| "?".into());
+        let uid = peer_uid(reader.get_ref())
+            .map(|u| u.to_string())
+            .unwrap_or_else(|| "?".into());
         let name = ipc::action_name(&action);
         let reply = ControlReply::err(format!(
             "permission denied for '{}' (uid {}): root required",
@@ -160,10 +164,16 @@ struct ControlReply {
 
 impl ControlReply {
     fn ok(body: String) -> Self {
-        ControlReply { status_line: "OK 0".into(), body }
+        ControlReply {
+            status_line: "OK 0".into(),
+            body,
+        }
     }
     fn err(msg: impl Into<String>) -> Self {
-        ControlReply { status_line: format!("ERR {}", msg.into()), body: String::new() }
+        ControlReply {
+            status_line: format!("ERR {}", msg.into()),
+            body: String::new(),
+        }
     }
 }
 
@@ -202,7 +212,10 @@ fn execute_control_action(action: ipc::ControlAction) -> ControlReply {
                 let Some(svc) = dag.services.get(&name) else {
                     return ControlReply::err(format!("service '{}' not found", name));
                 };
-                if matches!(svc.state, service::ServiceState::Running | service::ServiceState::Starting) {
+                if matches!(
+                    svc.state,
+                    service::ServiceState::Running | service::ServiceState::Starting
+                ) {
                     return ControlReply::err(format!("service '{}' already {}", name, svc.state));
                 }
                 if !svc.config.requires.is_empty() && !dag.all_deps_satisfied(&name) {
@@ -220,7 +233,10 @@ fn execute_control_action(action: ipc::ControlAction) -> ControlReply {
                 Ok(pid) => {
                     get_dag().mark_running(&name, pid);
                     get_children().push((name.clone(), pid));
-                    logger.log_service_event(&name, &format!("Service started via IPC (PID {})", pid));
+                    logger.log_service_event(
+                        &name,
+                        &format!("Service started via IPC (PID {})", pid),
+                    );
                     event::EventBus::emit_service(&name, "started", pid);
                     ControlReply::ok(format!("Started '{}' (PID {})\n", name, pid))
                 }
@@ -231,7 +247,10 @@ fn execute_control_action(action: ipc::ControlAction) -> ControlReply {
             }
         }
         ipc::ControlAction::Stop(name) => {
-            let pid = get_children().iter().find(|(n, _)| *n == name).map(|(_, p)| *p);
+            let pid = get_children()
+                .iter()
+                .find(|(n, _)| *n == name)
+                .map(|(_, p)| *p);
             match pid {
                 Some(pid) => {
                     if let Err(e) = process::terminate_group(pid, Duration::from_secs(10)) {
@@ -323,10 +342,8 @@ fn process_reaped_children() {
                 maybe_restart_service(&name, &status);
             }
             process::ProcessStatus::Failed(code) => {
-                get_logger().log_error(
-                    &name,
-                    &format!("Process exited with failure code {}", code),
-                );
+                get_logger()
+                    .log_error(&name, &format!("Process exited with failure code {}", code));
                 get_dag().mark_failed(&name);
                 get_children().retain(|(n, _)| n != &name);
                 maybe_restart_service(&name, &status);
@@ -413,7 +430,13 @@ fn maybe_restart_service(name: &str, status: &process::ProcessStatus) {
             return;
         }
         let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-            process::spawn_service_env(&name_owned, &exec, &env_vars, work_dir.as_deref(), logger_ref)
+            process::spawn_service_env(
+                &name_owned,
+                &exec,
+                &env_vars,
+                work_dir.as_deref(),
+                logger_ref,
+            )
         }));
         match result {
             Ok(Ok(pid)) => {
@@ -489,11 +512,19 @@ fn run_helper_timeout(program: &str, args: &[&str], timeout: Duration) {
 }
 
 fn plymouth_update(text: &str) {
-    run_helper_timeout("plymouth", &["update", &format!("--text={}", text)], Duration::from_secs(2));
+    run_helper_timeout(
+        "plymouth",
+        &["update", &format!("--text={}", text)],
+        Duration::from_secs(2),
+    );
 }
 
 fn plymouth_message(text: &str) {
-    run_helper_timeout("plymouth", &["message", &format!("--text={}", text)], Duration::from_secs(2));
+    run_helper_timeout(
+        "plymouth",
+        &["message", &format!("--text={}", text)],
+        Duration::from_secs(2),
+    );
 }
 
 fn plymouth_hide() {
@@ -562,24 +593,34 @@ async fn boot_sequence_silent() {
         let dag = get_dag();
         for (name, svc) in &dag.services {
             if let Some(ref socket_spec) = svc.config.socket
-                && let Some((path, sock_type)) = SocketActivator::parse_socket_spec(socket_spec) {
-                    // One socket per path: a second claimant would silently
-                    // steal the first service's listeners.
-                    if !seen_paths.insert(path.clone()) {
-                        logger.log_error(name, &format!("Socket '{}' already registered by another service; skipping", path));
-                        continue;
+                && let Some((path, sock_type)) = SocketActivator::parse_socket_spec(socket_spec)
+            {
+                // One socket per path: a second claimant would silently
+                // steal the first service's listeners.
+                if !seen_paths.insert(path.clone()) {
+                    logger.log_error(
+                        name,
+                        &format!(
+                            "Socket '{}' already registered by another service; skipping",
+                            path
+                        ),
+                    );
+                    continue;
+                }
+                sockets.register(name, &path, sock_type.clone());
+                match socket::create_socket_for(&path, &sock_type) {
+                    Ok(fd) => {
+                        socket::register_listen_fd(name, fd);
+                        logger.log_service_event(
+                            name,
+                            &format!("Socket activated: {} (fd {})", path, fd),
+                        );
                     }
-                    sockets.register(name, &path, sock_type.clone());
-                    match socket::create_socket_for(&path, &sock_type) {
-                        Ok(fd) => {
-                            socket::register_listen_fd(name, fd);
-                            logger.log_service_event(name, &format!("Socket activated: {} (fd {})", path, fd));
-                        }
-                        Err(e) => {
-                            logger.log_error(name, &format!("Socket activation failed: {}", e));
-                        }
+                    Err(e) => {
+                        logger.log_error(name, &format!("Socket activation failed: {}", e));
                     }
                 }
+            }
         }
     }
 
@@ -624,7 +665,8 @@ async fn boot_sequence_silent() {
                     if !deps_ok {
                         logger.log_warning(name, "Dependencies not satisfied, skipping");
                         get_dag().mark_failed(name);
-                        failed_services.push((name.clone(), "Dependencies not satisfied".to_string()));
+                        failed_services
+                            .push((name.clone(), "Dependencies not satisfied".to_string()));
                         failed_count += 1;
                         continue;
                     }
@@ -641,7 +683,13 @@ async fn boot_sequence_silent() {
                     // catch_unwind: a spawn-task panic must not kill PID 1
                     // (meaningful again now that panic=unwind).
                     let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                        process::spawn_service_env(&service_name, &exec_path, &env_vars, work_dir.as_deref(), logger_ref)
+                        process::spawn_service_env(
+                            &service_name,
+                            &exec_path,
+                            &env_vars,
+                            work_dir.as_deref(),
+                            logger_ref,
+                        )
                     }))
                     .unwrap_or_else(|_| Err("spawn task panicked".to_string()));
                     match result {
@@ -659,7 +707,10 @@ async fn boot_sequence_silent() {
         for handle in handles {
             let result = match handle.await {
                 Ok(result) => result,
-                Err(_) => ("join-failed".to_string(), Err("spawn task panicked".to_string())),
+                Err(_) => (
+                    "join-failed".to_string(),
+                    Err("spawn task panicked".to_string()),
+                ),
             };
             match result {
                 (name, Ok(pid)) => {
@@ -693,7 +744,10 @@ async fn boot_sequence_silent() {
         let dag = get_dag();
         let error_tree = visual::build_error_tree(&dag, &failed_services);
         eprint!("{}", error_tree);
-        logger.log_error("boot", &format!("{} services failed to start", failed_count));
+        logger.log_error(
+            "boot",
+            &format!("{} services failed to start", failed_count),
+        );
         plymouth_message(&format!("[Error] :: Boot failed ({} errors)", failed_count));
     } else {
         plymouth_update("[Done] :: Boot complete");
@@ -718,8 +772,7 @@ fn shutdown_graceful() {
         order
     };
     let children = get_children().clone();
-    let pid_by_name: std::collections::HashMap<String, u32> =
-        children.iter().cloned().collect();
+    let pid_by_name: std::collections::HashMap<String, u32> = children.iter().cloned().collect();
 
     for name in &stop_order {
         if let Some(pid) = pid_by_name.get(name) {
@@ -758,7 +811,9 @@ fn shutdown_graceful() {
 
     logger.log_info("shutdown", "System halted");
     plymouth_message("[Done] :: System halted");
-    unsafe { libc::sync(); }
+    unsafe {
+        libc::sync();
+    }
     // Best-effort: put writable filesystems into a safe state before the
     // final reboot(2). Failures here are non-fatal; sync() already ran.
     unsafe {
@@ -778,7 +833,9 @@ fn shutdown_graceful() {
     // As PID 1 we must never `exit()` — the kernel panics. Hand control
     // back to the kernel to power off or reboot as requested.
     let cmd = REBOOT_CMD.load(Ordering::SeqCst);
-    unsafe { libc::reboot(cmd); }
+    unsafe {
+        libc::reboot(cmd);
+    }
     // reboot() only returns on failure; block forever as a fallback.
     loop {
         std::thread::sleep(Duration::from_secs(3600));
@@ -805,7 +862,10 @@ fn reload_services() {
     for name in removed {
         let pid = dag.services.get(&name).and_then(|svc| svc.pid);
         if let Some(pid) = pid {
-            logger.log_info(&name, &format!("Removed from config; stopping (PID {})", pid));
+            logger.log_info(
+                &name,
+                &format!("Removed from config; stopping (PID {})", pid),
+            );
             process::terminate_group(pid, Duration::from_secs(5)).ok();
             get_children().retain(|(n, _)| n != &name);
         }
@@ -849,7 +909,9 @@ async fn main() {
         // PID 1 inherits the kernel default umask (0); tighten it before
         // any socket/log/directory is created so nothing lands world- or
         // group-writable by accident.
-        unsafe { libc::umask(0o022); }
+        unsafe {
+            libc::umask(0o022);
+        }
         setup_signal_handlers();
         mount_virtual_filesystems();
         // The event bus listener is intentionally NOT bound here: PID 1 only
@@ -904,13 +966,20 @@ async fn main() {
 fn cli_control_action(cmd: &cli::TopCommand) -> Option<ipc::ControlAction> {
     use cli::{ServiceCommand, SystemCommand, TopCommand};
     match cmd {
-        TopCommand::Service(ServiceCommand::Start(args)) => Some(ipc::ControlAction::Start(args.name.clone())),
-        TopCommand::Service(ServiceCommand::Stop(args)) => Some(ipc::ControlAction::Stop(args.name.clone())),
-        TopCommand::Service(ServiceCommand::Restart(args)) => Some(ipc::ControlAction::Restart(args.name.clone())),
-        TopCommand::Service(ServiceCommand::List(_)) => Some(ipc::ControlAction::List),
-        TopCommand::Service(ServiceCommand::Status(args)) => {
-            args.name.as_ref().map(|n| ipc::ControlAction::Status(n.clone()))
+        TopCommand::Service(ServiceCommand::Start(args)) => {
+            Some(ipc::ControlAction::Start(args.name.clone()))
         }
+        TopCommand::Service(ServiceCommand::Stop(args)) => {
+            Some(ipc::ControlAction::Stop(args.name.clone()))
+        }
+        TopCommand::Service(ServiceCommand::Restart(args)) => {
+            Some(ipc::ControlAction::Restart(args.name.clone()))
+        }
+        TopCommand::Service(ServiceCommand::List(_)) => Some(ipc::ControlAction::List),
+        TopCommand::Service(ServiceCommand::Status(args)) => args
+            .name
+            .as_ref()
+            .map(|n| ipc::ControlAction::Status(n.clone())),
         TopCommand::System(SystemCommand::Shutdown(_)) => Some(ipc::ControlAction::Shutdown),
         TopCommand::System(SystemCommand::Reboot(_)) => Some(ipc::ControlAction::Reboot),
         TopCommand::System(SystemCommand::Poweroff(_)) => Some(ipc::ControlAction::Poweroff),
@@ -944,7 +1013,10 @@ async fn boot_sequence_for_cli(dag: &mut DagEngine, logger: &CesarLogger) {
             &name,
             "Unresolved at boot (cyclic dependency); service will not start",
         );
-        eprintln!("\x1b[33m⚠\x1b[0m Service '{}' is on a dependency cycle and will not start", name);
+        eprintln!(
+            "\x1b[33m⚠\x1b[0m Service '{}' is on a dependency cycle and will not start",
+            name
+        );
     }
 
     let mut failed_services: Vec<(String, String)> = Vec::new();
@@ -959,13 +1031,12 @@ async fn boot_sequence_for_cli(dag: &mut DagEngine, logger: &CesarLogger) {
             };
 
             if let Some(svc) = svc {
-                if !svc.config.requires.is_empty()
-                    && !dag.all_deps_satisfied(name) {
-                        logger.log_warning(name, "Dependencies not satisfied, skipping");
-                        dag.mark_failed(name);
-                        failed_services.push((name.clone(), "Dependencies not satisfied".to_string()));
-                        continue;
-                    }
+                if !svc.config.requires.is_empty() && !dag.all_deps_satisfied(name) {
+                    logger.log_warning(name, "Dependencies not satisfied, skipping");
+                    dag.mark_failed(name);
+                    failed_services.push((name.clone(), "Dependencies not satisfied".to_string()));
+                    continue;
+                }
 
                 logger.log_service_event(name, "Service starting");
                 let exec_path = svc.config.exec.clone();
@@ -975,7 +1046,13 @@ async fn boot_sequence_for_cli(dag: &mut DagEngine, logger: &CesarLogger) {
                 let logger_ref = get_logger();
 
                 let handle = tokio::spawn(async move {
-                    match process::spawn_service_env(&service_name, &exec_path, &env_vars, work_dir.as_deref(), logger_ref) {
+                    match process::spawn_service_env(
+                        &service_name,
+                        &exec_path,
+                        &env_vars,
+                        work_dir.as_deref(),
+                        logger_ref,
+                    ) {
                         Ok(pid) => (service_name, Ok(pid)),
                         Err(e) => (service_name, Err(e)),
                     }
@@ -1010,7 +1087,10 @@ async fn boot_sequence_for_cli(dag: &mut DagEngine, logger: &CesarLogger) {
         eprint!("{}", error_tree);
         std::process::exit(1);
     } else {
-        println!("\x1b[32m✓\x1b[0m Boot complete. {} services running.", total);
+        println!(
+            "\x1b[32m✓\x1b[0m Boot complete. {} services running.",
+            total
+        );
     }
 }
 
@@ -1020,28 +1100,55 @@ fn mount_virtual_filesystems() {
         let _ = std::fs::create_dir("/run");
         let ret = unsafe {
             libc::mount(
-                c"tmpfs".as_ptr(), c"/run".as_ptr(), c"tmpfs".as_ptr(),
+                c"tmpfs".as_ptr(),
+                c"/run".as_ptr(),
+                c"tmpfs".as_ptr(),
                 libc::MS_NOSUID | libc::MS_NODEV | libc::MS_NOEXEC,
                 c"mode=0755".as_ptr().cast(),
             )
         };
         if ret != 0 {
-            eprintln!("[Warning] :: mount /run failed: {}", std::io::Error::last_os_error());
+            eprintln!(
+                "[Warning] :: mount /run failed: {}",
+                std::io::Error::last_os_error()
+            );
         }
     }
     unsafe {
         let mounts: [(&CStr, &CStr, &CStr, libc::c_ulong); 3] = [
-            (c"proc", c"/proc", c"proc", libc::MS_NOSUID | libc::MS_NODEV | libc::MS_NOEXEC),
-            (c"sysfs", c"/sys", c"sysfs", libc::MS_NOSUID | libc::MS_NODEV | libc::MS_NOEXEC),
-            (c"devtmpfs", c"/dev", c"devtmpfs", libc::MS_NOSUID | libc::MS_NOEXEC),
+            (
+                c"proc",
+                c"/proc",
+                c"proc",
+                libc::MS_NOSUID | libc::MS_NODEV | libc::MS_NOEXEC,
+            ),
+            (
+                c"sysfs",
+                c"/sys",
+                c"sysfs",
+                libc::MS_NOSUID | libc::MS_NODEV | libc::MS_NOEXEC,
+            ),
+            (
+                c"devtmpfs",
+                c"/dev",
+                c"devtmpfs",
+                libc::MS_NOSUID | libc::MS_NOEXEC,
+            ),
         ];
         for (source, target, fstype, flags) in mounts {
             let ret = libc::mount(
-                source.as_ptr(), target.as_ptr(), fstype.as_ptr(),
-                flags, std::ptr::null(),
+                source.as_ptr(),
+                target.as_ptr(),
+                fstype.as_ptr(),
+                flags,
+                std::ptr::null(),
             );
             if ret != 0 {
-                eprintln!("[Warning] :: mount {} failed: {}", target.to_string_lossy(), std::io::Error::last_os_error());
+                eprintln!(
+                    "[Warning] :: mount {} failed: {}",
+                    target.to_string_lossy(),
+                    std::io::Error::last_os_error()
+                );
             }
         }
     }

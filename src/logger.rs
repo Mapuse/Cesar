@@ -46,7 +46,11 @@ impl CesarLogger {
 
     fn header_text() -> String {
         let hostname = crate::hostname();
-        let host = if hostname.is_empty() { "Cudane-Core".to_string() } else { hostname };
+        let host = if hostname.is_empty() {
+            "Cudane-Core".to_string()
+        } else {
+            hostname
+        };
         format!(
             "# ─── CESAR SYSTEM LOGS SUMMARY ───\nDate: {} | Host: {}\n\n",
             Local::now().format("%Y-%m-%d"),
@@ -75,11 +79,7 @@ impl CesarLogger {
     }
 
     fn open_append(path: &str) -> Option<File> {
-        OpenOptions::new()
-            .create(true)
-            .append(true)
-            .open(path)
-            .ok()
+        OpenOptions::new().create(true).append(true).open(path).ok()
     }
 
     pub fn clear_log(&self) {
@@ -152,7 +152,11 @@ impl CesarLogger {
         if size > LOG_MAX_BYTES {
             *guard = None;
             fs::rename(&self.log_path, format!("{}.1", self.log_path)).ok();
-            if let Ok(dir) = fs::File::open(Path::new(&self.log_path).parent().unwrap_or_else(|| Path::new("."))) {
+            if let Ok(dir) = fs::File::open(
+                Path::new(&self.log_path)
+                    .parent()
+                    .unwrap_or_else(|| Path::new(".")),
+            ) {
                 let _ = dir.sync_all();
             }
             *guard = Self::open_append(&self.log_path);
@@ -176,7 +180,10 @@ impl CesarLogger {
 
     fn report_write_failure(&self) {
         if !self.write_failed.swap(true, Ordering::SeqCst) {
-            eprintln!("[Warning] :: cannot write to {}; logging disabled", self.log_path);
+            eprintln!(
+                "[Warning] :: cannot write to {}; logging disabled",
+                self.log_path
+            );
         }
     }
 
@@ -231,7 +238,10 @@ mod tests {
         let _ = fs::remove_file(&path);
         let logger = CesarLogger::at_path(&path);
         logger.log_info("svc", "mode check");
-        let mode = fs::metadata(&path).expect("log exists").permissions().mode();
+        let mode = fs::metadata(&path)
+            .expect("log exists")
+            .permissions()
+            .mode();
         assert_eq!(mode & 0o777, 0o640);
         let _ = fs::remove_file(&path);
     }
