@@ -1864,7 +1864,6 @@ Some advertised security surfaces are honest stubs: invoking them prints
 - `security trust add/remove/verify`
 - `system device attach/detach/info`
 
-```sh
 #### `security sandbox`
 
 | Flag | Short | Long | Type | Default | Description |
@@ -2730,20 +2729,17 @@ All build systems auto-detect `x86_64`/`aarch64` and select the correct musl tar
 ### Cargo (direct)
 
 ```shell
+TRIPLE=x86_64-unknown-linux-musl  # or aarch64-unknown-linux-musl
+
 # Native build + install
 cargo build --release --locked
-install -Dm755 target/release/csr /system/bin/csr
-install -Dm755 target/release/csl /system/bin/csl
+install -Dm755 target/release/csr "$DESTDIR$PREFIX/bin/csr"
+install -Dm755 target/release/csl "$DESTDIR$PREFIX/bin/csl"
 
-# Cross: amd64
-cargo build --release --locked --target x86_64-unknown-linux-musl
-install -Dm755 target/x86_64-unknown-linux-musl/release/csr /system/bin/csr
-install -Dm755 target/x86_64-unknown-linux-musl/release/csl /system/bin/csl
-
-# Cross: arm64
-cargo build --release --locked --target aarch64-unknown-linux-musl
-install -Dm755 target/aarch64-unknown-linux-musl/release/csr /system/bin/csr
-install -Dm755 target/aarch64-unknown-linux-musl/release/csl /system/bin/csl
+# Cross build + install
+cargo build --release --locked --target "$TRIPLE"
+install -Dm755 "target/$TRIPLE/release/csr" "$DESTDIR$PREFIX/bin/csr"
+install -Dm755 "target/$TRIPLE/release/csl" "$DESTDIR$PREFIX/bin/csl"
 ```
 
 ### Make
@@ -2900,11 +2896,44 @@ cargo test --release --all-features
 | Service directory | `/system/lib/cesar/services/` and `/etc/cesar/services/` exist |
 | Logger | Write + read roundtrip to `/var/log/cesar.md` |
 
+### Two-target gate (amd64 + aarch64)
+
+Before opening a PR, run both legs locally to match CI:
+
+**amd64 (native, mirrors CI `ubuntu-latest` leg):**
+
+```shell
+cargo fmt --check
+cargo clippy --all-targets -- -D warnings
+cargo build --locked
+cargo test --locked
+```
+
+**aarch64 cross (from an amd64 host via zig CC wrappers + qemu-user/binfmt):**
+
+```shell
+CC_aarch64_unknown_linux_musl=$PWD/toolchains/zig-aarch64-musl-cc \
+AR_aarch64_unknown_linux_musl=/usr/bin/ar \
+  cargo test --locked --target aarch64-unknown-linux-musl
+```
+
+Test binaries execute through qemu-user/binfmt transparently. CI runs the same leg natively on `ubuntu-24.04-arm`.
+
+**amd64 cross (from an arm64 host via zig CC wrappers + qemu-user/binfmt):**
+
+```shell
+CC_x86_64_unknown_linux_musl=$PWD/toolchains/zig-x86_64-musl-cc \
+AR_x86_64_unknown_linux_musl=/usr/bin/ar \
+  cargo test --locked --target x86_64-unknown-linux-musl
+```
+
+The x86_64 test binaries execute through qemu-user/binfmt transparently on an arm64 host. CI runs the same leg natively on `ubuntu-latest`.
+
 ## Linting
 
 ```shell
 # Clippy (lint checks)
-cargo clippy -- -D warnings
+cargo clippy --all-targets -- -D warnings
 
 # Format check
 cargo fmt --check
@@ -2957,26 +2986,34 @@ perf stat -e cycles,instructions,cache-misses,faults ./target/release/csr
 
 ## Continuous integration
 
+CI runs on GitHub Actions (`rust.yml`, branch `init`) with a native matrix — no qemu involved.
+
+| Leg | Runner |
+| --- | ------- |
+| `amd64` | `ubuntu-latest` |
+| `arm64` | `ubuntu-24.04-arm` |
+
+Both legs execute the same steps natively on their respective architecture:
+
 ```yaml
-# Expected CI pipeline (GitHub Actions)
+strategy:
+  matrix:
+    include:
+      - arch: amd64
+        os: ubuntu-latest
+      - arch: arm64
+        os: ubuntu-24.04-arm
+
+runs-on: ${{ matrix.os }}
 steps:
-  - name: Checkout
-    run: git checkout ${{ github.ref }}
+  - name: Install dependencies
+    run: sudo apt-get install -y meson ninja-build
 
   - name: Build
-    run: cargo build --release
+    run: cargo build --verbose
 
   - name: Test
-    run: cargo test --release
-
-  - name: Lint
-    run: cargo clippy -- -D warnings
-
-  - name: Format
-    run: cargo fmt --check
-
-  - name: Audit
-    run: cargo audit
+    run: cargo test --verbose
 ```
 
 ---
